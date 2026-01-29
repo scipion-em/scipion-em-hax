@@ -36,7 +36,6 @@ __version__ = "0.1.0"
 _logo = "logo.png"
 _references = []
 
-
 class Plugin(pwplugin.Plugin):
 
     @classmethod
@@ -69,6 +68,7 @@ class Plugin(pwplugin.Plugin):
 
         return os.path.join(module_path, "viewers", "server_loading_functions", "load_model.py")
 
+    @classmethod
     def defineBinaries(cls, env):
         installation_commands = []
         conda_activation_command = cls.getCondaActivationCmd()

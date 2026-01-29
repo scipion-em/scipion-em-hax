@@ -16,7 +16,10 @@ from pwem.objects import Volume, ParticleFlex
 from xmipp3.convert import writeSetOfParticles, matrixFromGeometry
 from pyworkflow.utils import getExt, makePath
 from pyworkflow.utils.path import moveFile
+from pwem.constants import ALIGN_PROJ, ALIGN_NONE
+from pyworkflow.object import String, Boolean, Float
 
+from sklearn.cluster import KMeans
 
 import hax
 import hax.constants as const
@@ -147,7 +150,7 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
         """Centralize how files are called"""
         myDict = {
             "imgsFn": self._getExtraPath("input_particles.xmd"),
-            # "predictedFn": self._getExtraPath("predicted_latents.xmd"),
+            "predictedFn": self._getExtraPath("predicted_latents.xmd"),
             "fnVol": self._getExtraPath("volume.mrc"),
             "fnVolMask": self._getExtraPath("mask.mrc"),
         }
@@ -308,13 +311,132 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
             numberOfMpi=1,
         )
 
+    def createOutputStep(self):
+        inputParticles = self.inputParticles.get()
+        out_path_vols = self._getExtraPath("volumes")
+        model_path = self._getExtraPath("Zernike3Deep")
+        md_file = self._getFileName("predictedFn")
+        out_path = self._getExtraPath()
+        Xdim = inputParticles.getXDim()
+        self.newXdim = self.boxSize.get()
+
+        metadata = XmippMetaData(md_file)
+        correctionFactor = Xdim / self.newXdim
+        latent_space = np.asarray(
+            [np.fromstring(item, sep=",") for item in metadata[:, "latent_space"]]
+        )
+        euler_rot = metadata[:, "angleRot"]
+        euler_tilt = metadata[:, "angleTilt"]
+        euler_psi = metadata[:, "anglePsi"]
+        shift_x = correctionFactor * metadata[:, "shiftX"]
+        shift_y = correctionFactor * metadata[:, "shiftY"]
+
+        inputSet = self.inputParticles.get()
+        partSet = self._createSetOfParticlesFlex(progName=const.ZERNIKE3D)
+
+        partSet.copyInfo(inputSet)
+        partSet.setHasCTF(inputSet.hasCTF())
+        partSet.setAlignmentProj()
+        inverseTransform = partSet.getAlignment() == ALIGN_PROJ
+
+        idx = 0
+        for particle in inputSet.iterItems():
+            outParticle = ParticleFlex(progName=const.ZERNIKE3D)
+            outParticle.copyInfo(particle)
+            outParticle.setZFlex(latent_space[idx])
+
+            # Set new transformation matrix
+            tr = matrixFromGeometry(
+                np.array([shift_x[idx], shift_y[idx], 0.0]),
+                np.array([euler_rot[idx], euler_tilt[idx], euler_psi[idx]]),
+                inverseTransform,
+            )
+            outParticle.getTransform().setMatrix(tr)
+
+            partSet.append(outParticle)
+            idx += 1
+
+        partSet.getFlexInfo().modelPath = String(model_path)
+
+        inputVolume = self.inputVolume.get().getFileName()
+        partSet.getFlexInfo().refMap = String(inputVolume)
+
+        inputMask = self.inputVolumeMask.get().getFileName()
+        partSet.refMask = String(inputMask)
+
+        if self.ctfType.get() != 0:
+            if self.ctfType.get() == 1:
+                partSet.getFlexInfo().ctfType = String("apply")
+            elif self.ctfType.get() == 1:
+                partSet.getFlexInfo().ctfType = String("wiener")
+            elif self.ctfType.get() == 2:
+                partSet.getFlexInfo().ctfType = String("precorrect")
+
+        if self.useGpu.get():
+            gpu = str(self.getGpuList()[0])
+        else:
+            gpu = ""
+
+        latents_kmeans = KMeans(n_clusters=20).fit(latent_space).cluster_centers_
+
+        latents_file_txt = os.path.join(out_path, "latents.txt")
+        np.savetxt(latents_file_txt, latents_kmeans)
+
+        if not os.path.isdir(out_path_vols):
+            makePath(out_path_vols)
+
+        args = "--latents_file %s --output_path %s --reload %s" % (
+            latents_file_txt,
+            out_path_vols,
+            self._getExtraPath("Zernike3Deep"),
+        )
+        program = hax.Plugin.getProgram("decode_states_from_latents", gpu)
+        self.runJob(program, args, numberOfMpi=1)
+
+        outVols = self._createSetOfVolumes()
+        outVols.setSamplingRate(inputParticles.getSamplingRate())
+        for idx in range(latents_kmeans.shape[0]):
+            outVol = Volume()
+            outVol.setSamplingRate(inputParticles.getSamplingRate())
+
+            ImageHandler().scaleSplines(
+                os.path.join(out_path_vols, f"decoded_volume_{idx:04d}.mrc"),
+                os.path.join(out_path_vols, f"decoded_volume_{idx:04d}.mrc"),
+                finalDimension=inputParticles.getXDim(),
+                overwrite=True,
+            )
+
+            ImageHandler().setSamplingRate(
+                os.path.join(out_path_vols, f"decoded_volume_{idx:04d}.mrc"),
+                inputParticles.getSamplingRate(),
+            )
+
+            outVol.setLocation(
+                os.path.join(out_path_vols, f"decoded_volume_{idx:04d}.mrc")
+            )
+            outVols.append(outVol)
+
+        self._defineOutputs(outputParticles=partSet)
+        self._defineTransformRelation(inputParticles, partSet)
+
+        self._defineOutputs(outputVolumes=outVols)
+        self._defineTransformRelation(inputParticles, outVols)
+
     def _insertAllSteps(self):
         self._createFilenameTemplates()
         self._insertFunctionStep(self.writeMetadataStep)
         self._insertFunctionStep(self.trainingStep)
+        self._insertFunctionStep(self.createOutputStep)
 
     def _summary(self):
-        return []
+        summary = []
+        logFile = os.path.abspath(self._getLogsPath()) + "/run.stdout"
+        with open(logFile, "r") as fi:
+            for ln in fi:
+                if ln.startswith("GPU memory has"):
+                    summary.append(ln)
+                    break
+        return summary
 
     def _getXmippFileName(self, filename):
         if getExt(filename) == ".mrc":
