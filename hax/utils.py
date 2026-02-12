@@ -25,6 +25,10 @@
 # **************************************************************************
 
 
+import subprocess
+import re
+
+
 def getOutputSuffix(protocol, cls):
     """ Get the name to be used for a new output.
     For example: output3DCoordinates7.
@@ -41,3 +45,18 @@ def getOutputSuffix(protocol, cls):
         maxCounter = max(counter, maxCounter)
 
     return str(maxCounter + 1) if maxCounter > 0 else '1'  # empty if not output
+
+
+def get_max_cuda_version():
+    try:
+        # Run nvidia-smi and capture the output
+        output = subprocess.check_output(["nvidia-smi"], encoding="utf-8")
+
+        # Use regex to find "CUDA Version: X.Y"
+        match = re.search(r"CUDA Version:\s+(\d+)\.", output)
+        if match:
+            return int(match.group(1))
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return "NVIDIA Driver/nvidia-smi not found"
+
+    return None
