@@ -47,7 +47,7 @@ from hax.utils import getOutputSuffix
 from hax.annotate_space_functions.annotate_space_arguments import getReducedSpaceArguments
 
 
-class HaxProtAnnotateSpace(ProtAnalysis3D, ProtFlexBase):
+class JaxProtAnnotateSpace(ProtAnalysis3D, ProtFlexBase):
     """ Interactive annotation of conformational spaces """
 
     _label = 'annotate space'

@@ -48,7 +48,7 @@ import hax
 import hax.constants as const
 
 
-class HaxProtAngularAlignmentReconSiren(ProtAnalysis3D, ProtFlexBase):
+class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D, ProtFlexBase):
     """ Ab initio reconstruction and global assignation with ReconSIREN neural network."""
     _label = 'angular align - ReconSIREN'
     _lastUpdateVersion = VERSION_2_0
