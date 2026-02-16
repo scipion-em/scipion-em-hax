@@ -48,7 +48,7 @@ from xmipp3.convert import writeSetOfParticles, matrixFromGeometry
 import hax
 import hax.constants as const
 
-class JaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
+class HaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
     """ Protocol for angular alignment with heterogeneous reconstruction with the HetSIREN algorithm."""
     _label = 'flexible align - HetSIREN'
     _lastUpdateVersion = VERSION_1

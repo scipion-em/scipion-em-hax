@@ -38,7 +38,7 @@ from pwem.objects import Volume, ParticleFlex
 import hax
 import hax.constants as const
 
-class JaxProtTrainFlexConsensus(ProtAnalysis3D, ProtFlexBase):
+class HaxProtTrainFlexConsensus(ProtAnalysis3D, ProtFlexBase):
     """ Protocol to train a FlexConsensus network """
     _label = 'train - FlexConsensus'
     _lastUpdateVersion = VERSION_1

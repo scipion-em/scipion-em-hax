@@ -44,7 +44,7 @@ from xmipp3.convert import writeSetOfParticles, matrixFromGeometry
 
 import hax
 
-class JaxProtVolumeAdjustment(ProtAnalysis3D, ProtFlexBase):
+class HaxProtVolumeAdjustment(ProtAnalysis3D, ProtFlexBase):
     """ Protocol for volume gray values adjustment with the Volume Gray Scale Adjustment algorithm."""
     _label = 'predict - Volume Adjustment '
     _lastUpdateVersion = VERSION_1

@@ -26,11 +26,11 @@
 # *
 # **************************************************************************
 
-from .protocol_hetsiren import JaxProtFlexibleAlignmentHetSiren
-from .protocol_flexconsensus import JaxProtTrainFlexConsensus
-from .protocol_annotate_space import JaxProtAnnotateSpace
-from .protocol_reconsiren import JaxProtAngularAlignmentReconSiren
-from .protocol_image_gray_scale_adjustment import JaxProtImageAdjustment
-from .protocol_predict_hetsiren import JaxProtPredictHetSiren
-from .protocol_interactive_flexconsensus import JaxProtInteractiveFlexConsensus
-from .protocol_volume_gray_scale_adjustment import JaxProtVolumeAdjustment
+from .protocol_hetsiren import HaxProtFlexibleAlignmentHetSiren
+from .protocol_flexconsensus import HaxProtTrainFlexConsensus
+from .protocol_annotate_space import HaxProtAnnotateSpace
+from .protocol_reconsiren import HaxProtAngularAlignmentReconSiren
+from .protocol_image_gray_scale_adjustment import HaxProtImageAdjustment
+from .protocol_predict_hetsiren import HaxProtPredictHetSiren
+from .protocol_interactive_flexconsensus import HaxProtInteractiveFlexConsensus
+from .protocol_volume_gray_scale_adjustment import HaxProtVolumeAdjustment

@@ -45,7 +45,7 @@ from xmipp3.convert import writeSetOfParticles, matrixFromGeometry
 
 import hax
 
-class JaxProtImageAdjustment(ProtAnalysis3D, ProtFlexBase):
+class HaxProtImageAdjustment(ProtAnalysis3D, ProtFlexBase):
     """ Protocol for image gray values adjustment with the Image Gray Scale Adjustment algorithm."""
     _label = 'predict - Image Adjustment '
     _lastUpdateVersion = VERSION_1

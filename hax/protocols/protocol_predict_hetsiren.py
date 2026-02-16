@@ -48,7 +48,7 @@ from xmipp3.convert import createItemMatrix, setXmippAttributes, writeSetOfParti
 import hax
 import hax.constants as const
 
-class JaxProtPredictHetSiren(ProtAnalysis3D, ProtFlexBase):
+class HaxProtPredictHetSiren(ProtAnalysis3D, ProtFlexBase):
     """ Predict particle poses with map decoding with the HetSIREN network. """
     _label = 'predict - HetSIREN'
     _lastUpdateVersion = VERSION_1
@@ -72,7 +72,7 @@ class JaxProtPredictHetSiren(ProtAnalysis3D, ProtFlexBase):
 
         form.addSection(label='Network')
         form.addParam('hetsirenProtocol', params.PointerParam, label="HetSIREN trained network",
-                       pointerClass='JaxProtFlexibleAlignmentHetSiren',
+                       pointerClass='HaxProtFlexibleAlignmentHetSiren',
                        help="Previously executed 'angular align - HetSIREN'. "
                             "This will allow to load the network trained in that protocol to be used during "
                             "the prediction")

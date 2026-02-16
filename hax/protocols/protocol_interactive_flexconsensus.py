@@ -39,7 +39,7 @@ import hax
 import hax.constants as const
 from hax.utils import getOutputSuffix
 
-class JaxProtInteractiveFlexConsensus(ProtAnalysis3D, ProtFlexBase):
+class HaxProtInteractiveFlexConsensus(ProtAnalysis3D, ProtFlexBase):
     """ Protocol to filter particles based on a FlexConsensus network interactively """
     _label = 'interactive consensus - FlexConsensus'
     _lastUpdateVersion = VERSION_1
@@ -64,7 +64,7 @@ class JaxProtInteractiveFlexConsensus(ProtAnalysis3D, ProtFlexBase):
 
         form.addSection(label='Network')
         form.addParam('flexConsensusProtocol', params.PointerParam, label="FlexConsensus trained network",
-                       pointerClass='JaxProtTrainFlexConsensus',
+                       pointerClass='HaxProtTrainFlexConsensus',
                        help="Previously executed 'train - FlexConsensus'. "
                             "This will allow to load the network trained in that protocol to be used during "
                             "the prediction")

@@ -31,13 +31,13 @@ import numpy as np
 from pyworkflow.viewer import DESKTOP_TKINTER, WEB_DJANGO, ProtocolViewer
 import pyworkflow.protocol.params as params
 
-from hax.protocols.protocol_interactive_flexconsensus import JaxProtInteractiveFlexConsensus
+from hax.protocols.protocol_interactive_flexconsensus import HaxProtInteractiveFlexConsensus
 from hax.viewers.functions.interactive_histogram import InteractiveHist
 
 class JaxFlexConsensusView(ProtocolViewer):
     """ Interactive FlexConsensus filtering """
     _label = 'viewer FlexConsensus'
-    _targets = [JaxProtInteractiveFlexConsensus]
+    _targets = [HaxProtInteractiveFlexConsensus]
     _environments = [DESKTOP_TKINTER, WEB_DJANGO]
     _choices = ["Consensus error", "Representation error"]
 

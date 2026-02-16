@@ -53,9 +53,9 @@ class Plugin(pwplugin.Plugin):
         cmd = f'{cls.getCondaActivationCmd()} {cls.getEnvActivation()} && '
         if uses_project_manager:
             if gpu is not None:
-                return cmd + f'project_manager --gpu {gpu} {program} '
+                return cmd + f'hax_project_manager --gpu {gpu} {program} '
             else:
-                return cmd + f'project_manager {program} '
+                return cmd + f'hax_project_manager {program} '
         else:
             return cmd + f'{program} '
 
