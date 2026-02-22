@@ -173,7 +173,7 @@ class JaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
                             "0.001 --> 0.0001).")
 
         group = form.addGroup("Network regularization")
-        group.addParam('denoisingStrength', params.FloatParam, default=1e-4, label='Denoising strength',
+        group.addParam('denoisingStrength', params.FloatParam, default=0.0, label='Denoising strength',
                        expertLevel=params.LEVEL_ADVANCED,
                        help="Determines how strongly HetSIREN will learn to remove noise from the resulting volumes. "
                             "Increasing the value of this parameter will result in a stronger regularization of the noise,"
