@@ -36,7 +36,7 @@ import pyworkflow.plugin as pwplugin
 from hax.utils import get_max_cuda_version
 
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 _logo = "logo.png"
 _references = []
 
