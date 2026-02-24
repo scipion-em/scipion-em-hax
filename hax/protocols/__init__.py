@@ -30,4 +30,9 @@ from .protocol_hetsiren import JaxProtFlexibleAlignmentHetSiren
 from .protocol_flexconsensus import JaxProtTrainFlexConsensus
 from .protocol_annotate_space import JaxProtAnnotateSpace
 from .protocol_reconsiren import JaxProtAngularAlignmentReconSiren
+from .protocol_image_gray_scale_adjustment import JaxProtImageAdjustment
+from .protocol_predict_hetsiren import JaxProtPredictHetSiren
+from .protocol_interactive_flexconsensus import JaxProtInteractiveFlexConsensus
+from .protocol_volume_gray_scale_adjustment import JaxProtVolumeAdjustment
+from .protocol_reconstruct_modart import JaxProtReconstructMoDART
 from .protocol_zernike3deep import JaxProtTrainZernike3Deep

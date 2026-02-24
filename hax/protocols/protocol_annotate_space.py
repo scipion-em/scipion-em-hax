@@ -185,7 +185,7 @@ class JaxProtAnnotateSpace(ProtAnalysis3D, ProtFlexBase):
         gpu = ','.join([str(elem) for elem in self.getGpuList()])
 
         # Check if program has a reduced space saved (like in FlexConsensus)
-        if particles.getFirstItem().getZRed():
+        if len(particles.getFirstItem().getZRed()) > 0:
             args += f" {getReducedSpaceArguments(particles, self._getExtraPath())}"
 
         # Program specific arguments
