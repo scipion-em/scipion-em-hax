@@ -47,16 +47,28 @@ class JaxProtReconstructMoDART(ProtReconstruct3D):
 
     def __init__(self, **args):
         ProtReconstruct3D.__init__(self, **args)
-        self.stepsExecutionMode = params.STEPS_PARALLEL
 
     #--------------------------- DEFINE param functions --------------------------------------------   
     def _defineParams(self, form):
         form.addSection(label='Input')
 
-        form.addHidden(params.GPU_LIST, params.StringParam, default='0',
-                       expertLevel=params.LEVEL_ADVANCED,
-                       label="Choose GPU IDs",
-                       help="Add a list of GPU devices that can be used")
+        form.addHidden(
+            params.USE_GPU,
+            params.BooleanParam,
+            default=True,
+            label="Use GPU for execution",
+            help="This protocol has both CPU and GPU implementation.\
+                                         Select the one you want to use.",
+        )
+
+        form.addHidden(
+            params.GPU_LIST,
+            params.StringParam,
+            default="0",
+            expertLevel=params.LEVEL_ADVANCED,
+            label="Choose GPU IDs",
+            help="Add a list of GPU devices that can be used",
+        )
 
         group = form.addGroup("Data")
         group.addParam('inputParticles', params.PointerParam, pointerClass='SetOfParticles, SetOfParticlesFlex',
@@ -125,9 +137,9 @@ class JaxProtReconstructMoDART(ProtReconstruct3D):
                            'loading images > 256px on a HDD disk.')
 
         group = form.addGroup("Network hyperparameters")
-        group.addParam('batchSize', params.IntParam, default=8, label='Number of images in batch',
+        group.addParam('batchSize', params.IntParam, default=64, label='Number of images in batch',
                        help="Determines how many images will be load in the GPU at any moment during training (set by "
-                            "default to 8 - you can control GPU memory usage easily by tuning this parameter to fit your "
+                            "default to 64 - you can control GPU memory usage easily by tuning this parameter to fit your "
                             "hardware requirements - we recommend using tools like nvidia-smi to monitor and/or measure "
                             "memory usage and adjust this value - keep also in mind that bigger batch sizes might be "
                             "less precise when looking for very local motions")
@@ -168,15 +180,15 @@ class JaxProtReconstructMoDART(ProtReconstruct3D):
         args = (f"--md {imgsFn} --sr {sr} --symmetry_group {symmetryGroup} --batch_size {batchSize} "
                 f"--output_path {output_path} ")
 
-        if self.inputVolume.get():
-            args += f"--vol{self.initialMap.get()} "
+        if self.initialMap.get():
+            args += f"--vol {self.initialMap.get().getFileName()} "
 
-        if self.inputVolumeMask.get():
-            args += f"--mask{self.recMask.get()} "
+        if self.recMask.get():
+            args += f"--mask {self.recMask.get().getFileName()} "
 
         if self.ctfType != 0:
             if self.ctfType.get() == 1:
-                args += "--ctf_type apply """
+                args += "--ctf_type apply "
             elif self.ctfType.get() == 2:
                 args += "--ctf_type wiener "
             elif self.ctfType.get() == 3:
