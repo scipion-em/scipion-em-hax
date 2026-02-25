@@ -33,9 +33,10 @@ import sys
 from pwem import Config as emConfig
 
 import pyworkflow.plugin as pwplugin
+from hax.utils import get_max_cuda_version
 
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 _logo = "logo.png"
 _references = []
 
@@ -52,9 +53,9 @@ class Plugin(pwplugin.Plugin):
         cmd = f'{cls.getCondaActivationCmd()} {cls.getEnvActivation()} && '
         if uses_project_manager:
             if gpu is not None:
-                return cmd + f'project_manager --gpu {gpu} {program} '
+                return cmd + f'hax_project_manager --gpu {gpu} {program} '
             else:
-                return cmd + f'project_manager {program} '
+                return cmd + f'hax_project_manager {program} '
         else:
             return cmd + f'{program} '
 
@@ -77,9 +78,12 @@ class Plugin(pwplugin.Plugin):
         conda_activation_command = cls.getCondaActivationCmd()
         isDevelInstall = "--devel" in sys.argv
 
+        # Find cuda version to be installed
+        cuda_major = max(min(get_max_cuda_version(), 13), 12)
+
         # Create conda environment
         conda_env_installed = "conda_env_installed"
-        commands_conda_env = f"{conda_activation_command} conda create -n hax -y python=3.10 && touch {conda_env_installed}"
+        commands_conda_env = f"{conda_activation_command} conda create -n hax -y python=3.11 && touch {conda_env_installed}"
         installation_commands.append((commands_conda_env, conda_env_installed))
 
         # Install Hax
@@ -90,7 +94,7 @@ class Plugin(pwplugin.Plugin):
             hax_pip_package = f"git+https://github.com/DavidHerreros/Hax@devel --src {emConfig.EM_ROOT}"
         else:
             hax_pip_package = "git+https://github.com/DavidHerreros/Hax@master"  # TODO: Change this in the future to released package in Pypi
-        commands_hax = f"{conda_activation_command} {cls.getEnvActivation()} && pip install {hax_pip_package} && touch {hax_installed}"
+        commands_hax = f"{conda_activation_command} {cls.getEnvActivation()} && pip install {hax_pip_package}[cuda{cuda_major}] && touch {hax_installed}"
         installation_commands.append((commands_hax, hax_installed))
 
         env.addPackage('hax', version=__version__,

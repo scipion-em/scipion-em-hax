@@ -43,7 +43,7 @@ If you are a developer, you might want to install the plugin in development mode
 In both cases, the Plugin will automatically create a Conda environment to isolate Hax from other installations. So, you'll need to have Conda installed on your machine.
 
 > [!WARNING]
-> Hax currently supports NVIDIA drivers version: >= 525 (Cuda 12 will be installed along the package, so there is no need to have CUDA already installed in your system).
+> Hax currently supports NVIDIA drivers version: >= 525 (Cuda 12/13 will be installed along the package, so there is no need to have CUDA already installed in your system).
 
 # References
 

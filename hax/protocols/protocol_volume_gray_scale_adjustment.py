@@ -103,6 +103,13 @@ class JaxProtVolumeAdjustment(ProtAnalysis3D, ProtFlexBase):
                            'will be slightly lower compared to loading the images to RAM. Disk usage will be back to normal '
                            'once the execution has finished.')
 
+        form.addParam('scratchFolder', params.PathParam,
+                      condition="not lazyLoad",
+                      label='Path to SSD scratch folder',
+                      help='If you are not loading the images to RAM, we strongly recommend to provide here a path to a folder in '
+                           'a SSD/NVME disk to speed up the data loading. In general, you can expected a decrease in training performance when '
+                           'loading images > 256px on a HDD disk.')
+
         group = form.addGroup("Network hyperparameters")
         group.addParam('latDim', params.IntParam, default=10, label='Latent space dimension',
                        expertLevel=params.LEVEL_ADVANCED,
@@ -199,7 +206,7 @@ class JaxProtVolumeAdjustment(ProtAnalysis3D, ProtFlexBase):
         epochs = self.epochs.get()
         latDim = self.latDim.get()
         sr = self.inputParticles.get().getSamplingRate()
-        args = "--md %s --vol %s --sr %f --lat_dim %d --epochs %d --batch_size %d learning_rate %f --output_path %s " \
+        args = "--md %s --vol %s --sr %f --lat_dim %d --epochs %d --batch_size %d --learning_rate %f --output_path %s " \
                % (md_file, vol_file, sr, latDim, epochs, batch_size, learningRate, out_path)
 
         if self.inputVolumeMask.get():
@@ -220,6 +227,9 @@ class JaxProtVolumeAdjustment(ProtAnalysis3D, ProtFlexBase):
 
         if self.lazyLoad:
             args += '--load_images_to_ram '
+        else:
+            if self.scratchFolder.get() is not None:
+                args += '--ssd_scratch_folder %s ' % self.scratchFolder.get()
 
         if self.useGpu.get():
             gpu = str(self.getGpuList()[0])
