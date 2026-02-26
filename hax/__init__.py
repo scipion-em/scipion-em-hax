@@ -90,7 +90,6 @@ class Plugin(pwplugin.Plugin):
         hax_installed = "hax_installed"
         if isDevelInstall:
             print("Installing Hax from devel branch and editable mode...")
-
             hax_pip_package = f"git+https://github.com/DavidHerreros/Hax@devel --src {emConfig.EM_ROOT}"
         else:
             hax_pip_package = "git+https://github.com/DavidHerreros/Hax@master"  # TODO: Change this in the future to released package in Pypi
