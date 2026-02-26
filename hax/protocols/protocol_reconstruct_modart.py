@@ -219,13 +219,13 @@ class JaxProtReconstructMoDART(ProtReconstruct3D):
     def createOutputStep(self):
         volume = Volume()
         volume.setFileName(self._getFileName('outputVol'))
+        volume.setSamplingRate(self.inputParticles.get().getSamplingRate())
 
         if self.mode.get() == 1:
-            halves = []
             volume.setHalfMaps([self._getFileName('modart_first_half'), self._getFileName('modart_second_half')])
 
         # Set correct sampling rate in volume header
-        ImageHandler().setSamplingRate(self._getExtraPath("final_reconstruction.mrc"), self.inputParticles.getSamplingRate())
+        ImageHandler().setSamplingRate(self._getExtraPath("modart_map.mrc"), self.inputParticles.get().getSamplingRate())
 
         self._defineOutputs(outputVolume=volume)
         self._defineSourceRelation(self.inputParticles, volume)
