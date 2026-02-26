@@ -202,6 +202,18 @@ class JaxProtAnnotateSpace(ProtAnalysis3D, ProtFlexBase):
                 args += f" {getAnnotateSpaceArguments(particles, gpu_id=gpu)}"
             else:
                 args += f" {getAnnotateSpaceArguments(particles)}"
+        elif progName == "Opus-DSD":
+            from opusdsd.utils.utils import getAnnotateSpaceArguments
+            if gpu:
+                args += f" {getAnnotateSpaceArguments(particles, gpu_id=gpu)}"
+            else:
+                args += f" {getAnnotateSpaceArguments(particles)}"
+        elif progName == "CryoDRGN":
+            from cryodrgn.utils.utils import getAnnotateSpaceArguments
+            if gpu:
+                args += f" {getAnnotateSpaceArguments(particles, gpu_id=gpu)}"
+            else:
+                args += f" {getAnnotateSpaceArguments(particles)}"
 
         program = "annotate_space"
         program = hax.Plugin.getProgram(program, gpu=gpu)
