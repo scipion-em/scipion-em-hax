@@ -183,6 +183,18 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
                  "0.001 --> 0.0001)."
         )
 
+        train = form.addGroup("Zernike3D basis parameters")
+        train.addParam("L1", params.IntParam, default=7, label='Zernike degree',
+                       help="This parameters controls the degree of the Zernike polynomials used to compute the Zernike3D "
+                            "basis. The larger the value, the larger the freedom to find a given conformational change. "
+                            "This value must be >= to the spherical harmonics degree."
+                       )
+
+        train.addParam("L2", params.IntParam, default=7, label='Spherical harmonics degree',
+                       help="This parameters controls the degree of the spherical harmonics used to compute the Zernike3D "
+                            "basis. The larger the value, the larger the freedom to find a given conformational change."
+                       )
+
         # ------------------------
         # RECONSTURCTION GROUP
         # ------------------------
@@ -312,7 +324,8 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
         sr = correctionFactor * self.inputParticles.get().getSamplingRate()
 
         args = (
-            "--md %s --sr %f --lat_dim %d --epochs %d --batch_size %d --learning_rate %s --vol %s --mask %s --output_path %s "
+            "--md %s --sr %f --lat_dim %d --epochs %d --batch_size %d --learning_rate %s --L1 %d --L2 %d --vol %s "
+            "--mask %s --output_path %s "
             % (
                 md_file,
                 sr,
@@ -320,6 +333,8 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
                 epochs,
                 batch_size,
                 learningRate,
+                self.L1.get(),
+                self.L2.get(),
                 vol_file,
                 mask_file,
                 out_path,
