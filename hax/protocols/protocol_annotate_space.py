@@ -214,6 +214,12 @@ class JaxProtAnnotateSpace(ProtAnalysis3D, ProtFlexBase):
                 args += f" {getAnnotateSpaceArguments(particles, gpu_id=gpu)}"
             else:
                 args += f" {getAnnotateSpaceArguments(particles)}"
+        elif progName == "cryoSPARC":
+            from cryosparc2.threeDFlex.annotate_space_arguments import getAnnotateSpaceArguments
+            if gpu:
+                args += f" {getAnnotateSpaceArguments(particles, gpu_id=gpu)}"
+            else:
+                args += f" {getAnnotateSpaceArguments(particles, gpu_id=0)}"
 
         program = "annotate_space"
         program = hax.Plugin.getProgram(program, gpu=gpu)
