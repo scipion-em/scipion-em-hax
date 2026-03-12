@@ -200,7 +200,7 @@ class JaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
 
         form.addParam('numberGaussians', params.IntParam, label='Number of gaussians (fixed)',
                       expertLevel=params.LEVEL_ADVANCED,
-                      allowsNull=True, condition="massTransport",
+                      allowsNull=True, condition="inputVolume",
                       help="Before training the network, HetSIREN will try to fit a set of Gaussians in the reference volume to recreate it. "
                            "The default criterium is to automatically determine the number of Gaussians neede to reproduce the reference volume "
                            "with high-fidelity. However, if you prefer to fix the number of Gaussians in advance based on your own criterium (e.g., "
@@ -308,6 +308,9 @@ class JaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
         if self.inputVolume.get():
             args += '--vol %s ' % vol_file
 
+            if self.numberGaussians.get() is not None:
+                args += '--num_gaussians %d ' % self.numberGaussians.get()
+
         if self.inputVolumeMask.get():
             args += '--mask %s ' % mask_file
 
@@ -332,9 +335,6 @@ class JaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
 
             if self.isImplicit:
                 args += '--implicit_network '
-
-            if self.numberGaussians.get() is not None:
-                args += '--num_gaussians %d ' % self.numberGaussians.get()
 
         elif self.localRecon:
             args += '--local_reconstruction '
