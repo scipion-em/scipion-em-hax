@@ -102,43 +102,49 @@ class JaxProtAnnotateSpace(ProtAnalysis3D, ProtFlexBase):
         clInx = 1
         newId = 1
         for layer_folder in os.listdir(layers_folder):
-            # Folder with saved volumes and particle indices
-            representative_path = os.path.join(layers_folder, layer_folder, "representative.mrc")
-            particle_ids_path = os.path.join(layers_folder, layer_folder, "particle_indices.txt")
+            if not os.path.basename(layer_folder).startswith("SHL_"):
+                # Folder with saved volumes and particle indices
+                if os.path.isfile(os.path.join(layers_folder, layer_folder, "representative.mrc")):
+                    representative_paths = [os.path.join(layers_folder, layer_folder, "representative.mrc"),]
+                    particle_ids_paths = [os.path.join(layers_folder, layer_folder, "particle_indices.txt"),]
+                else:
+                    representative_paths = glob(os.path.join(layers_folder, layer_folder, "representative*.mrc"))
+                    particle_ids_paths = glob(os.path.join(layers_folder, layer_folder, "particle_indices*.txt"))
 
-            if "KMeans" not in layer_folder:
-                newClass = ClassFlex()
-                newClass.copyInfo(particles)
-                newClass.setObjId(clInx)
-                newClass.setHasCTF(particles.hasCTF())
-                newClass.setAcquisition(particles.getAcquisition())
-                representative = VolumeFlex(progName=progName)
-                representative.setLocation(representative_path)
-                if hasattr(representative, "setSamplingRate"):
-                    representative.setSamplingRate(sr)
+                for representative_path, particle_ids_path in zip(representative_paths, particle_ids_paths):
+                    if "KMeans" not in layer_folder:
+                        newClass = ClassFlex()
+                        newClass.copyInfo(particles)
+                        newClass.setObjId(clInx)
+                        newClass.setHasCTF(particles.hasCTF())
+                        newClass.setAcquisition(particles.getAcquisition())
+                        representative = VolumeFlex(progName=progName)
+                        representative.setLocation(representative_path)
+                        if hasattr(representative, "setSamplingRate"):
+                            representative.setSamplingRate(sr)
 
-                # Check if representative needs resampling and set correct sampling rate in header
-                ImageHandler().scaleSplines(representative_path, representative_path, finalDimension=particles.getXDim(), overwrite=True)
-                ImageHandler().setSamplingRate(representative_path, sr)
+                        # Check if representative needs resampling and set correct sampling rate in header
+                        ImageHandler().scaleSplines(representative_path, representative_path, finalDimension=particles.getXDim(), overwrite=True)
+                        ImageHandler().setSamplingRate(representative_path, sr)
 
-                newClass.setRepresentative(representative)
+                        newClass.setRepresentative(representative)
 
-                flexSetVols.append(representative)
-                flexClasses.append(newClass)
+                        flexSetVols.append(representative)
+                        flexClasses.append(newClass)
 
-                # Populate images
-                enabledClass = flexClasses[newClass.getObjId()]
-                enabledClass.enableAppend()
-                particle_ids = partIds[np.loadtxt(particle_ids_path, dtype=int)]
-                for particle_id in particle_ids:
-                    item = particles[int(particle_id)]
-                    item._xmipp_subtomo_labels = Integer(clInx)
-                    item.setObjId(newId)
-                    enabledClass.append(item)
-                    newId += 1
+                        # Populate images
+                        enabledClass = flexClasses[newClass.getObjId()]
+                        enabledClass.enableAppend()
+                        particle_ids = partIds[np.loadtxt(particle_ids_path, dtype=int)]
+                        for particle_id in particle_ids:
+                            item = particles[int(particle_id)]
+                            item._xmipp_subtomo_labels = Integer(clInx)
+                            item.setObjId(newId)
+                            enabledClass.append(item)
+                            newId += 1
 
-                flexClasses.update(enabledClass)
-                clInx += 1
+                        flexClasses.update(enabledClass)
+                        clInx += 1
 
         # Save new output
         name_classes = self.OUTPUT_PREFIX_CLASSES + "_" + suffix
@@ -224,9 +230,11 @@ class JaxProtAnnotateSpace(ProtAnalysis3D, ProtFlexBase):
         program = "annotate_space"
         program = hax.Plugin.getProgram(program, gpu=gpu)
         self.runJob(program, args)
-        if len(glob(self._getExtraPath(os.path.join("Intermediate_results", "selections_layers*/")))) > 0 and \
-           askYesNo(Message.TITLE_SAVE_OUTPUT, Message.LABEL_SAVE_OUTPUT, None):
-            self._createOutput()
+        if len(glob(self._getExtraPath(os.path.join("Intermediate_results", "selections_layers*/")))) > 0:
+            out_files = os.listdir(self._getExtraPath(os.path.join("Intermediate_results", "selections_layers")))
+            only_shape_layers = not np.all([os.path.basename(layer_folder).startswith("SHL_") for layer_folder in out_files])
+            if only_shape_layers and askYesNo(Message.TITLE_SAVE_OUTPUT, Message.LABEL_SAVE_OUTPUT, None):
+                self._createOutput()
 
     # --------------------------- OUTPUT functions -----------------------------
     def deleteOutput(self, output):
