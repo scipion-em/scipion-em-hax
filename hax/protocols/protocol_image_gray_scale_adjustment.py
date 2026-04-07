@@ -235,7 +235,7 @@ class JaxProtImageAdjustment(ProtAnalysis3D, ProtFlexBase):
         if self.useGpu.get():
             gpu = str(self.getGpuList()[0])
         else:
-            gpu = ''
+            gpu = None
 
         program = hax.Plugin.getProgram("image_gray_scale_adjustment", gpu)
         if not os.path.isdir(self._getExtraPath("imageAdjustment")):

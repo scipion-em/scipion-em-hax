@@ -211,7 +211,7 @@ class JaxProtReconstructMoDART(ProtReconstruct3D):
         if self.useGpu.get():
             gpu = str(self.getGpuList()[0])
         else:
-            gpu = ''
+            gpu = None
 
         program = hax.Plugin.getProgram("modart", gpu)
         self.runJob(program, args, numberOfMpi=1)

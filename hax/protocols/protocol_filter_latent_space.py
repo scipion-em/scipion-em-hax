@@ -115,7 +115,7 @@ class JaxProtFilterLatents(ProtAnalysis3D, ProtFlexBase):
         if self.useGpu.get():
             gpu = str(self.getGpuList()[0])
         else:
-            gpu = ''
+            gpu = None
 
         program = hax.Plugin.getProgram("filter_latents", gpu)
         self.runJob(program, args, numberOfMpi=1)

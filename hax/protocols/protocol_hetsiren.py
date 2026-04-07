@@ -342,7 +342,7 @@ class JaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
         if self.useGpu.get():
             gpu = str(self.getGpuList()[0])
         else:
-            gpu = ''
+            gpu = None
 
         program = hax.Plugin.getProgram("hetsiren", gpu)
         if not os.path.isdir(self._getExtraPath("HetSIREN")):
@@ -413,7 +413,7 @@ class JaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
         if self.useGpu.get():
             gpu = str(self.getGpuList()[0])
         else:
-            gpu = ''
+            gpu = None
 
         latents_kmeans = KMeans(n_clusters=20).fit(latent_space).cluster_centers_
 
