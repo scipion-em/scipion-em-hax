@@ -35,6 +35,7 @@ from xmipp_metadata.image_handler import ImageHandler
 import pyworkflow.protocol.params as params
 from pyworkflow.utils.path import moveFile
 from pyworkflow import VERSION_2_0
+from pyworkflow.utils import getExt
 
 from pwem.protocols import ProtAnalysis3D, ProtFlexBase
 from pwem.constants import ALIGN_PROJ, ALIGN_NONE
@@ -362,6 +363,10 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D, ProtFlexBase):
 
 
     # --------------------------- UTILS functions -----------------------
+    def _getXmippFileName(self, filename):
+        if getExt(filename) == ".mrc":
+            filename += ":mrc"
+        return filename
 
     # --------------------------- INFO functions -----------------------------
     def _summary(self):
