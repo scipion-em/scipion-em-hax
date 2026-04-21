@@ -92,7 +92,7 @@ class Plugin(pwplugin.Plugin):
             print("Installing Hax from devel branch and editable mode...")
             hax_pip_package = f'-e "Hax[cuda{cuda_major}] @ git+https://github.com/DavidHerreros/Hax.git@devel" --src {emConfig.EM_ROOT}'
         else:
-            hax_pip_package = f'-e "Hax[cuda{cuda_major}] @ git+https://github.com/DavidHerreros/Hax.git@master" --src {emConfig.EM_ROOT}'  # TODO: Change this in the future to released package in Pypi
+            hax_pip_package = f'hax-em[cuda{cuda_major}]'  # TODO: Change this in the future to released package in Pypi
         commands_hax = f"{conda_activation_command} {cls.getEnvActivation()} && pip install {hax_pip_package} && touch {hax_installed}"
         installation_commands.append((commands_hax, hax_installed))
 
