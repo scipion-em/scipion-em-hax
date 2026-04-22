@@ -121,7 +121,8 @@ class JaxProtInteractiveFlexConsensus(ProtAnalysis3D, ProtFlexBase):
 
     def _createOutput(self):
         inputSet = self.inputSet.get()
-        selected_idx = np.loadtxt(self._getExtraPath("selected_idx.txt"))
+        selected_idx = np.loadtxt(self._getExtraPath("selected_idx.txt")).astype(int)
+        particle_ids = list(inputSet.getIdSet())
 
         suffix = getOutputSuffix(self, SetOfParticlesFlex)
         partSet = self._createSetOfParticlesFlex(suffix, progName=inputSet.getFlexInfo().getProgName())
@@ -130,13 +131,8 @@ class JaxProtInteractiveFlexConsensus(ProtAnalysis3D, ProtFlexBase):
         partSet.setHasCTF(inputSet.hasCTF())
         partSet.setAlignmentProj()
 
-        idx = 0
-        for particle in inputSet.iterItems():
-            if idx in selected_idx:
-                outParticle = ParticleFlex(progName=inputSet.getFlexInfo().getProgName())
-                outParticle.copyInfo(particle)
-                partSet.append(outParticle)
-            idx += 1
+        for idx in selected_idx:
+            partSet.append(inputSet[particle_ids[idx]].clone())
 
         name = self.OUTPUT_PREFIX + suffix
         args = {}

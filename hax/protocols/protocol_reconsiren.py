@@ -26,7 +26,6 @@
 
 
 import os
-import re
 from glob import glob
 
 import numpy as np
@@ -34,23 +33,23 @@ from xmipp_metadata.metadata import XmippMetaData
 from xmipp_metadata.image_handler import ImageHandler
 
 import pyworkflow.protocol.params as params
-from pyworkflow.object import String, Boolean, Float
 from pyworkflow.utils.path import moveFile
 from pyworkflow import VERSION_2_0
+from pyworkflow.utils import getExt
 
-from pwem.protocols import ProtAnalysis3D
-import pwem.emlib.metadata as md
+from pwem.protocols import ProtAnalysis3D, ProtFlexBase
 from pwem.constants import ALIGN_PROJ, ALIGN_NONE
-from pwem.objects import Volume, Particle
+from pwem.objects import Volume, ParticleFlex
 
 from xmipp3.convert import createItemMatrix, setXmippAttributes, writeSetOfParticles, \
     geometryFromMatrix, matrixFromGeometry
 import xmipp3
 
 import hax
+import hax.constants as const
 
 
-class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D):
+class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D, ProtFlexBase):
     """ Ab initio reconstruction and global assignation with ReconSIREN neural network."""
     _label = 'angular align - ReconSIREN'
     _lastUpdateVersion = VERSION_2_0
@@ -137,6 +136,13 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D):
                            'will be slightly lower compared to loading the images to RAM. Disk usage will be back to normal '
                            'once the execution has finished.')
 
+        form.addParam('scratchFolder', params.PathParam,
+                      condition="not lazyLoad",
+                      label='Path to SSD scratch folder',
+                      help='If you are not loading the images to RAM, we strongly recommend to provide here a path to a folder in '
+                           'a SSD/NVME disk to speed up the data loading. In general, you can expected a decrease in training performance when '
+                           'loading images > 256px on a HDD disk.')
+
         group = form.addGroup("Network hyperparameters")
         group.addParam('epochs', params.IntParam, default=50,
                        label='Number of training epochs',
@@ -212,8 +218,6 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D):
                     self.runJob("xmipp_image_resize",
                                 "-i %s --dim %d --interp nearest" % (fnVolMask, vol_mask_dim), numberOfMpi=1,
                                 env=xmipp3.Plugin.getEnviron())
-        else:
-            ImageHandler().createCircularMask(fnVolMask, boxSize=vol_mask_dim, is3D=True)
 
         writeSetOfParticles(inputParticles, imgsFn)
 
@@ -270,11 +274,14 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D):
 
         if self.lazyLoad:
             args += '--load_images_to_ram '
+        else:
+            if self.scratchFolder.get() is not None:
+                args += '--ssd_scratch_folder %s ' % self.scratchFolder.get()
 
         if self.useGpu.get():
             gpu = str(self.getGpuList()[0])
         else:
-            gpu = ''
+            gpu = None
 
         program = hax.Plugin.getProgram("reconsiren", gpu)
         if not os.path.isdir(self._getExtraPath("ReconSIREN")):
@@ -292,6 +299,7 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D):
 
         metadata = XmippMetaData(md_file)
         correctionFactor = Xdim / self.newXdim
+        latent_space = np.asarray([np.fromstring(item, sep=',') for item in metadata[:, 'latent_space']])
         euler_rot = metadata[:, 'angleRot']
         euler_tilt = metadata[:, 'angleTilt']
         euler_psi = metadata[:, 'anglePsi']
@@ -299,7 +307,7 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D):
         shift_y = correctionFactor * metadata[:, 'shiftY']
 
         inputSet = self.inputParticles.get()
-        partSet = self._createSetOfParticles()
+        partSet = self._createSetOfParticlesFlex(progName=const.RECONSIREN)
 
         partSet.copyInfo(inputSet)
         partSet.setHasCTF(inputSet.hasCTF())
@@ -308,8 +316,9 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D):
 
         idx = 0
         for particle in inputSet.iterItems():
-            outParticle = Particle()
+            outParticle = ParticleFlex(progName=const.HETSIREN)
             outParticle.copyInfo(particle)
+            outParticle.setZFlex(latent_space[idx])
 
             # Set new transformation matrix
             tr = matrixFromGeometry(np.array([shift_x[idx], shift_y[idx], 0.0]),
@@ -331,14 +340,33 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D):
         outVol.setLocation(out_path_vol)
         outVols.append(outVol)
 
+        outHetVols = self._createSetOfVolumes(suffix='Het')
+        outHetVols.setSamplingRate(inputSet.getSamplingRate())
+        for file in glob(self._getExtraPath('reconsiren_hetmap*')):
+            outHetVol = Volume()
+            outHetVol.setSamplingRate(inputSet.getSamplingRate())
+
+            ImageHandler().scaleSplines(file, file, finalDimension=inputSet.getXDim(), overwrite=True)
+            ImageHandler().setSamplingRate(file, inputSet.getSamplingRate())
+
+            outHetVol.setLocation(file)
+            outHetVols.append(outHetVol)
+
         self._defineOutputs(outputParticles=partSet)
         self._defineTransformRelation(inputSet, partSet)
 
         self._defineOutputs(outputVolumes=outVols)
         self._defineTransformRelation(inputSet, outVols)
 
+        self._defineOutputs(outputHetVolumes=outHetVols)
+        self._defineTransformRelation(inputSet, outHetVols)
+
 
     # --------------------------- UTILS functions -----------------------
+    def _getXmippFileName(self, filename):
+        if getExt(filename) == ".mrc":
+            filename += ":mrc"
+        return filename
 
     # --------------------------- INFO functions -----------------------------
     def _summary(self):

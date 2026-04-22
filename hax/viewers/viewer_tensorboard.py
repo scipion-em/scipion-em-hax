@@ -34,6 +34,9 @@ import psutil
 import socket
 import webbrowser
 from contextlib import closing
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+import urllib.request
 
 from pyworkflow.viewer import DESKTOP_TKINTER, WEB_DJANGO
 from pyworkflow.gui.dialog import showError
@@ -41,9 +44,134 @@ from pyworkflow.gui.dialog import showError
 from pwem.viewers import DataViewer
 
 from hax.protocols import (JaxProtFlexibleAlignmentHetSiren, JaxProtTrainFlexConsensus, JaxProtAngularAlignmentReconSiren,
-                           JaxProtImageAdjustment, JaxProtVolumeAdjustment)
+                           JaxProtImageAdjustment, JaxProtVolumeAdjustment, JaxProtTrainZernike3Deep,
+                           JaxProtReconstructMoDART)
 
 import hax
+
+
+def get_free_port():
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+        s.bind(('', 0))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return s.getsockname()[1]
+
+
+def wait_for_server_ready(url, timeout=30):
+    """
+    Polls the URL until it returns a 200 OK, ensuring the app is actually loaded.
+    """
+    print(f"Waiting for TensorBoard to load at {url}...", end="", flush=True)
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            # We set a short timeout for the request itself so we don't hang
+            with urllib.request.urlopen(url, timeout=1) as response:
+                if response.status == 200:
+                    print(" Ready!")
+                    return True
+        except (urllib.error.URLError, socket.timeout, ConnectionResetError):
+            # Server not ready yet, wait and retry
+            time.sleep(0.5)
+            print(".", end="", flush=True)
+
+    print("\nTimed out waiting for TensorBoard.")
+    return False
+
+
+def launch_smart_tensorboard(logdir_path):
+    # 1. Setup Ports
+    tb_port = get_free_port()
+    wrapper_port = get_free_port()
+
+    # 2. Launch TensorBoard Process
+    # Ensure 'hax' is imported or replace with "tensorboard" string
+    try:
+        program = hax.Plugin.getProgram("tensorboard", gpu=None, uses_project_manager=False)
+    except NameError:
+        program = "tensorboard"
+
+        # Note: --bind_all allows the internal iframe request to work reliably
+    args = f" --logdir {logdir_path} --port {tb_port} --bind_all"
+
+    # Start the process
+    tb_process = subprocess.Popen(f"{program} {args}", shell=True)
+
+    # 3. BLOCK HERE until TensorBoard is actually ready
+    tb_url = f"http://localhost:{tb_port}/"
+    if not wait_for_server_ready(tb_url):
+        print("Failed to start TensorBoard. Exiting.")
+        tb_process.terminate()
+        return
+
+    # 4. Define the Heartbeat Wrapper (Auto-Close Logic)
+    class HeartbeatHandler(BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            return  # Silence logs
+
+        def do_GET(self):
+            if self.path == '/heartbeat':
+                self.server.last_beat = time.time()
+                self.send_response(200)
+                self.end_headers()
+            else:
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html')
+                self.end_headers()
+                # We embed the NOW-READY TensorBoard URL
+                html = f"""
+                <html>
+                <head>
+                    <title>TensorBoard</title>
+                    <style>body,html,iframe{{width:100%;height:100%;margin:0;border:none;overflow:hidden;}}</style>
+                    <script>
+                        setInterval(() => fetch('/heartbeat').catch(console.error), 2000);
+                        window.onbeforeunload = () => fetch('/heartbeat?closing=true');
+                    </script>
+                </head>
+                <body>
+                    <iframe src="{tb_url}"></iframe>
+                </body>
+                </html>
+                """
+                self.wfile.write(html.encode('utf-8'))
+
+    # 5. Start the Wrapper Server
+    server = HTTPServer(('localhost', wrapper_port), HeartbeatHandler)
+    server.last_beat = time.time()
+
+    t = threading.Thread(target=server.serve_forever)
+    t.daemon = True
+    t.start()
+
+    # 6. Open Browser (Only now!)
+    final_url = f"http://localhost:{wrapper_port}/"
+    print(f"Opening browser at {final_url}")
+    webbrowser.open(final_url)
+
+    # 7. Monitor Loop
+    try:
+        while True:
+            time.sleep(1)
+            # Kill if no heartbeat for 5 seconds OR if TB process crashes
+            if time.time() - server.last_beat > 5:
+                print("\nBrowser tab closed. Stopping TensorBoard...")
+                break
+            if tb_process.poll() is not None:
+                print("\nTensorBoard process died. Exiting...")
+                break
+    except KeyboardInterrupt:
+        pass
+
+    # 8. Cleanup
+    try:
+        parent = psutil.Process(tb_process.pid)
+        for child in parent.children(recursive=True):
+            child.kill()
+        tb_process.terminate()
+    except:
+        pass
+    server.shutdown()
 
 
 class JaxTensorboardViewer(DataViewer):
@@ -53,7 +181,9 @@ class JaxTensorboardViewer(DataViewer):
                 JaxProtTrainFlexConsensus,
                 JaxProtAngularAlignmentReconSiren,
                 JaxProtImageAdjustment,
-                JaxProtVolumeAdjustment]
+                JaxProtVolumeAdjustment,
+                JaxProtTrainZernike3Deep,
+                JaxProtReconstructMoDART]
     _environments = [DESKTOP_TKINTER, WEB_DJANGO]
 
     def __init__(self, **kwargs):
@@ -62,58 +192,6 @@ class JaxTensorboardViewer(DataViewer):
 
     def _visualize(self, obj, **kwargs):
         logdir_path = glob(self.protocol._getExtraPath("*_metrics/"))[0]
-
-        def launchTensorboard(logdir_path):
-            def is_port_in_use(port: int) -> bool:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    return s.connect_ex(('localhost', port)) == 0
-
-            # Find free port
-            with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-                s.bind(('', 0))
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                port = s.getsockname()[1]
-
-            # Launch TensorBoard
-            program = hax.Plugin.getProgram("tensorboard", gpu=None, uses_project_manager=False)
-            args = f" --logdir {logdir_path} --port {port}"
-            self.tensorboard_process = subprocess.Popen(program + args, shell=True)
-            while not is_port_in_use(port):
-                time.sleep(0.1)
-
-            url = f"http://localhost:{port}/"
-            print(f"TensorBoard running at {url}")
-
-            # Use webbrowser.get() to obtain command
-            try:
-                browser_controller = webbrowser.get()  # get default browser
-                browser_cmd = browser_controller.name
-            except webbrowser.Error:
-                browser_cmd = None
-
-            # Launch the browser manually if we can
-            if browser_cmd:
-                browser_proc = subprocess.Popen([browser_cmd, url])
-                print(f"Opened {browser_cmd} for TensorBoard view")
-            else:
-                webbrowser.open_new(url)
-                browser_proc = None
-                print("Opened browser via webbrowser, but cannot track its closure")
-
-            # Wait for browser to close
-            if browser_proc:
-                browser_proc.wait()
-                print("Browser closed — stopping TensorBoard...")
-            else:
-                print("Cannot detect browser closure — press Ctrl+C to stop TensorBoard manually.")
-
-            # Stop TensorBoard
-            parent = psutil.Process(self.tensorboard_process.pid)
-            for child in parent.children(recursive=True):
-                child.kill()
-            self.tensorboard_process.terminate()
-            self.tensorboard_process.wait()
-            print("TensorBoard stopped.")
 
         if not os.path.isdir(logdir_path):
             if hasattr(self.protocol, "tensorboard"):
@@ -127,7 +205,7 @@ class JaxTensorboardViewer(DataViewer):
             showError(title="Tensorboard log files not found", msg=msg, parent=self.getTkRoot())
             return []
 
-        p = mp.Process(target=launchTensorboard, args=(logdir_path,), daemon=True)
+        p = mp.Process(target=launch_smart_tensorboard, args=(logdir_path,), daemon=True)
         p.start()
 
         return []

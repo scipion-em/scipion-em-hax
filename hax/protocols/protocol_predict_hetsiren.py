@@ -86,6 +86,13 @@ class JaxProtPredictHetSiren(ProtAnalysis3D, ProtFlexBase):
                            'will be slightly lower compared to loading the images to RAM. Disk usage will be back to normal '
                            'once the execution has finished.')
 
+        form.addParam('scratchFolder', params.PathParam,
+                      condition="not lazyLoad",
+                      label='Path to SSD scratch folder',
+                      help='If you are not loading the images to RAM, we strongly recommend to provide here a path to a folder in '
+                           'a SSD/NVME disk to speed up the data loading. In general, you can expected a decrease in training performance when '
+                           'loading images > 256px on a HDD disk.')
+
         form.addParam('batchSize', params.IntParam, default=8, label='Number of images in batch',
                        help="Determines how many images will be load in the GPU at any moment during training (set by "
                             "default to 8 - you can control GPU memory usage easily by tuning this parameter to fit your "
@@ -120,7 +127,7 @@ class JaxProtPredictHetSiren(ProtAnalysis3D, ProtFlexBase):
 
         inputParticles = self.inputParticles.get()
         Xdim = inputParticles.getXDim()
-        newXdim = self._getHetSirenProtocol().boxSize.get()
+        newXdim = self._getHetSirenProtocol().boxSize.get() if self._getHetSirenProtocol().doDownsample.get() else Xdim
         vol_mask_dim = newXdim
 
         if self._getHetSirenProtocol().inputVolume.get():
@@ -177,7 +184,7 @@ class JaxProtPredictHetSiren(ProtAnalysis3D, ProtFlexBase):
             os.mkdir(out_path)
         batch_size = self._getHetSirenProtocol().batchSize.get()
         latDim = self._getHetSirenProtocol().latDim.get()
-        newXdim = self._getHetSirenProtocol().boxSize.get()
+        newXdim = self._getHetSirenProtocol().boxSize.get()  if self._getHetSirenProtocol().doDownsample.get() else self.inputParticles.get().getXDim()
         correctionFactor = self.inputParticles.get().getXDim() / newXdim
         sr = correctionFactor * self.inputParticles.get().getSamplingRate()
         args = "--md %s --sr %f --lat_dim %d --batch_size %d  --output_path %s " \
@@ -199,16 +206,23 @@ class JaxProtPredictHetSiren(ProtAnalysis3D, ProtFlexBase):
 
         if self.lazyLoad.get():
             args += '--load_images_to_ram '
+        else:
+            if self.scratchFolder.get() is not None:
+                args += '--ssd_scratch_folder %s ' % self.scratchFolder.get()
 
         if self._getHetSirenProtocol().massTransport.get():
             args += '--transport_mass '
+
+            if self._getHetSirenProtocol().isImplicit:
+                args += '--implicit_network '
+
         elif self._getHetSirenProtocol().localRecon.get():
             args += '--local_reconstruction '
 
         if self.useGpu.get():
             gpu = str(self.getGpuList()[0])
         else:
-            gpu = ''
+            gpu = None
 
         program = hax.Plugin.getProgram("hetsiren", gpu)
         self.runJob(program, args + f'--mode predict --reload {out_path}', numberOfMpi=1)
@@ -274,7 +288,7 @@ class JaxProtPredictHetSiren(ProtAnalysis3D, ProtFlexBase):
         if self.useGpu.get():
             gpu = str(self.getGpuList()[0])
         else:
-            gpu = ''
+            gpu = None
 
         latents_kmeans = KMeans(n_clusters=20).fit(latent_space).cluster_centers_
 

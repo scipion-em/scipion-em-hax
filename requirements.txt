@@ -1,4 +1,5 @@
 scipion-em>=3.5.0
 scipion-app>=3.3.1
 scipion-pyworkflow>=3.7.0
+seaborn<=0.13.2
 xmipp_metadata<=1.2.0

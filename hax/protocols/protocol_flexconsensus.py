@@ -149,7 +149,7 @@ class JaxProtTrainFlexConsensus(ProtAnalysis3D, ProtFlexBase):
         if self.useGpu.get():
             gpu = str(self.getGpuList()[0])
         else:
-            gpu = ''
+            gpu = None
 
         program = hax.Plugin.getProgram("flexconsensus", gpu)
         if not os.path.isdir(self._getExtraPath("FlexConsensus")):
@@ -165,7 +165,7 @@ class JaxProtTrainFlexConsensus(ProtAnalysis3D, ProtFlexBase):
             inputSet = inputSet.get()
             progName = inputSet.getFlexInfo().getProgName()
 
-            outputSet = self._createSetOfParticlesFlex(progName=progName)
+            outputSet = self._createSetOfParticlesFlex(progName=progName, suffix=f"_{idx}")
             outputSet.copyInfo(inputSet)
             outputSet.setHasCTF(inputSet.hasCTF())
             outputSet.setAlignmentProj()
