@@ -226,6 +226,9 @@ class JaxProtAnnotateSpace(ProtAnalysis3D, ProtFlexBase):
                 args += f" {getAnnotateSpaceArguments(particles, gpu_id=gpu)}"
             else:
                 args += f" {getAnnotateSpaceArguments(particles, gpu_id=0)}"
+        elif progName == "ReconSIREN":
+            from hax.annotate_space_functions.annotate_space_arguments import getReconSIRENArguments
+            args += f" {getReconSIRENArguments(particles)}"
 
         program = "annotate_space"
         program = hax.Plugin.getProgram(program, gpu=gpu)

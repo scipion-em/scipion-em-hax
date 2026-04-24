@@ -315,7 +315,7 @@ class JaxProtAngularAlignmentReconSirenHetOnly(ProtAnalysis3D, ProtFlexBase):
 
         idx = 0
         for particle in inputSet.iterItems():
-            outParticle = ParticleFlex(progName=const.HETSIREN)
+            outParticle = ParticleFlex(progName=const.RECONSIREN)
             outParticle.copyInfo(particle)
             outParticle.setZFlex(latent_space[idx])
 

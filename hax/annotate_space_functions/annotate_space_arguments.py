@@ -47,6 +47,7 @@ def getHetSIRENArguments(particles):
 
     return args
 
+
 def getReducedSpaceArguments(particles, save_path):
     consensus_space = []
     for particle in particles.iterItems():
@@ -56,5 +57,14 @@ def getReducedSpaceArguments(particles, save_path):
     np.savetxt(os.path.join(save_path, "reduced_space.txt"), consensus_space)
 
     args = f"--z_space_reduced {os.path.join(save_path, 'reduced_space.txt')}"
+
+    return args
+
+
+def getReconSIRENArguments(particles):
+    server_functions_path = Plugin.getAnnotateSpaceFunctionsPath()
+
+    args = (f"--server_functions_path {server_functions_path} --pickled_nn {particles.getFlexInfo().getAttr('modelPath')} "
+            f"--env_name hax")
 
     return args
