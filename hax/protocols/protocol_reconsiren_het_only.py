@@ -39,7 +39,7 @@ from pyworkflow.utils import getExt
 
 from pwem.protocols import ProtAnalysis3D, ProtFlexBase
 from pwem.constants import ALIGN_PROJ, ALIGN_NONE
-from pwem.objects import Volume, ParticleFlex
+from pwem.objects import Volume, ParticleFlex, String
 
 from xmipp3.convert import createItemMatrix, setXmippAttributes, writeSetOfParticles, \
     geometryFromMatrix, matrixFromGeometry
@@ -293,6 +293,7 @@ class JaxProtAngularAlignmentReconSirenHetOnly(ProtAnalysis3D, ProtFlexBase):
 
     def createOutputStep(self):
         md_file = self._getFileName('predictedFn')
+        model_path = self._getExtraPath('ReconSIREN')
         Xdim = self.inputParticles.get().getXDim()
         self.newXdim = self.boxSize.get()
 
@@ -327,6 +328,8 @@ class JaxProtAngularAlignmentReconSirenHetOnly(ProtAnalysis3D, ProtFlexBase):
 
             partSet.append(outParticle)
             idx += 1
+
+        partSet.getFlexInfo().modelPath = String(model_path)
 
         outHetVols = self._createSetOfVolumes(suffix='Het')
         outHetVols.setSamplingRate(inputSet.getSamplingRate())
