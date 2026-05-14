@@ -284,8 +284,10 @@ class JaxProtSharpeningHetSiren(ProtAnalysis3D, ProtFlexBase):
         newXdim = self.boxSize.get() if self.doDownsample.get() else self.inputVolume.get().getXDim()
         correctionFactor = self.inputVolume.get().getXDim() / newXdim
         sr = correctionFactor * self.inputVolume.get().getSamplingRate()
-        args = "--md %s --vol %s --sr %f --lat_dim %d --densify_interval %d --epochs %d --batch_size %d --learning_rate %s --output_path %s --denoising_strength %f " \
-               % (md_file, vol_file,  sr, latDim, densifyInterval, epochs, batch_size, learningRate, out_path, denoisingStrength)
+        args = ("--md %s --vol %s --sr %f --lat_dim %d --densify_interval %d --max_gaussians %d "
+                "--epochs %d --batch_size %d --learning_rate %s --output_path %s --denoising_strength %f ") \
+               % (md_file, vol_file,  sr, latDim, densifyInterval, maxGaussians,
+                  epochs, batch_size, learningRate, out_path, denoisingStrength)
 
         if self.numberGaussians.get() is not None:
             args += '--num_gaussians %d ' % self.numberGaussians.get()
