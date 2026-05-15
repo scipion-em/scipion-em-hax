@@ -45,7 +45,7 @@ from xmipp3.convert import writeSetOfParticles, matrixFromGeometry
 import hax
 
 class JaxProtCryoCheck(ProtAnalysis2D, ProtFlexBase):
-    """ Protocol for misalignment detection for CryoEM maps."""
+    """ Protocol for misalignment detection of CryoEM maps."""
     _label = 'train - misalignment detection'
     _lastUpdateVersion = VERSION_1
 
@@ -116,6 +116,8 @@ class JaxProtCryoCheck(ProtAnalysis2D, ProtFlexBase):
 
         form.addParallelSection(threads=0, mpi=4)
 
+        #qui mancano alcuni che ho in arg parse chiedere
+
     def _createFilenameTemplates(self):
         """ Centralize how files are called """
         myDict = {
@@ -171,5 +173,103 @@ class JaxProtCryoCheck(ProtAnalysis2D, ProtFlexBase):
             md[:, "subtomo_labels"] = labels
         md.write(imgsFn, overwrite=True)
 
-        
+    def trainingPredictStep(self):
+        md_file = self._getFileName('imgsFn')
+        vol_file = self._getFileName('fnVol')
+        #mask_file = self._getFileName('fnVolMask')
+        out_path = self._getExtraPath()
+        if not os.path.isdir(out_path):
+            os.mkdir(out_path)
+        batch_size = self.batchSize.get()
+        learningRate = self.learningRate.get()
+        epochs = self.epochs.get()
+       # latDim = self.latDim.get()
+        sr = self.inputParticles.get().getSamplingRate()
+        args = "--md %s --vol %s --sr %f --epochs %d --batch_size %d --learning_rate %f --output_path %s " \
+               % (md_file, vol_file, sr, epochs, batch_size, learningRate, out_path)
+
+        if self.lazyLoad:
+            args += '--load_images_to_ram '
+        else:
+            if self.scratchFolder.get() is not None:
+                args += '--ssd_scratch_folder %s ' % self.scratchFolder.get()
+
+        if self.useGpu.get():
+            gpu = str(self.getGpuList()[0])
+        else:
+            gpu = None
+
+        program = hax.Plugin.getProgram("cryocheck", gpu)
+        if not os.path.isdir(self._getExtraPath("cryocheck_output")):  #ma il  nome dell'output deve essere lo stesso che si trova nel programma di cryocheck
+            self.runJob(program,
+                        args + f'--mode train --reload {self._getExtraPath()}'
+                        if self.fineTune else args + '--mode train',
+                        numberOfMpi=1)
+        self.runJob(program, args + f'--mode predict --reload {self._getExtraPath()}', numberOfMpi=1)
+
+
+    def createOutputStep(self):
+        inputSet = self.inputParticles.get()
+        partSet = self._createSetOfParticles()
+        out_md = os.path.join(self._getExtraPath(), "md_final.xmd")
+
+        md = XmippMetaData(out_md)
+
+        partSet.copyInfo(inputSet)
+       # partSet.setHasCTF(inputSet.hasCTF())
+       # partSet.setAlignmentProj()
+
+        idx = 0
+        for particle in inputSet.iterItems():
+            outParticle = Particle()
+            outParticle.copyInfo(particle)
+
+            outParticle.setLocation(md[idx, "final_predictions"])
+
+            #if not self.predictsPerPixel:
+             #   outParticle.a_adjustment = Float(md[idx, "adjustment_a"])
+              #  outParticle.b_adjustment = Float(md[idx, "adjustment_b"])
+
+            #partSet.append(outParticle)
+            idx += 1
+
+        self._defineOutputs(outputParticles=partSet)
+        self._defineTransformRelation(inputSet, partSet)
+
+
+    # --------------------------- INFO functions -----------------------------
+    def _summary(self):
+        summary = []
+        logFile = os.path.abspath(self._getLogsPath()) + "/run.stdout"
+        with open(logFile, "r") as fi:
+            for ln in fi:
+                if ln.startswith("GPU memory has"):
+                    summary.append(ln)
+                    break
+        return summary
+
+    # ----------------------- VALIDATE functions -----------------------
+    def _validate(self):
+        """ Try to find errors on define params. """
+        errors = []
+
+        vol = self.inputVolume.get()
+       # mask = self.inputVolumeMask.get()
+
+        if vol is None:
+            errors.append("A volume is required. Please, select a valid and adequate volume for your dataset")
+
+        return errors
+
+    def _warnings(self):
+        warnings = []
+
+        return warnings
+
+    # --------------------------- UTILS functions -----------------------
+
+    def _getXmippFileName(self, filename):
+        if getExt(filename) == ".mrc":
+            filename += ":mrc"
+        return filename
 
