@@ -45,7 +45,7 @@ from pwem.viewers import DataViewer
 
 from hax.protocols import (JaxProtFlexibleAlignmentHetSiren, JaxProtTrainFlexConsensus, JaxProtAngularAlignmentReconSiren,
                            JaxProtImageAdjustment, JaxProtVolumeAdjustment, JaxProtTrainZernike3Deep,
-                           JaxProtReconstructMoDART)
+                           JaxProtReconstructMoDART, JaxProtCryoCheck)
 
 import hax
 
@@ -183,7 +183,8 @@ class JaxTensorboardViewer(DataViewer):
                 JaxProtImageAdjustment,
                 JaxProtVolumeAdjustment,
                 JaxProtTrainZernike3Deep,
-                JaxProtReconstructMoDART]
+                JaxProtReconstructMoDART,
+                JaxProtCryoCheck]
     _environments = [DESKTOP_TKINTER, WEB_DJANGO]
 
     def __init__(self, **kwargs):
