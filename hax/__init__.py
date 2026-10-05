@@ -73,6 +73,23 @@ class Plugin(pwplugin.Plugin):
         return os.path.join(module_path, "viewers", "server_loading_functions", "load_model.py")
 
     @classmethod
+    def generateProjectionsJAX(cls, gpus, num_projections, volumePath, outPath, outPathStk):
+        cmd = f'{cls.getCondaActivationCmd()} {cls.getEnvActivation()} && CUDA_VISIBLE_DEVICES={gpus} &&'
+        cmd += ('python -c "import hax; '
+                'import os; '
+                'import numpy as np; '
+                'from xmipp_metadata.metadata import XmippMetaData; '
+                'from xmipp_metadata.image_handler import ImageHandler; '
+                'from hax.utils.projector import generateProjectionsJAX; '
+                f'vol_data = ImageHandler().read(\'{volumePath}\'); '
+                f'particles, angles = generateProjectionsJAX({num_projections}, volume=vol_data); '
+                f'ImageHandler().write(particles, \'{outPathStk}\'); '
+                f'md = XmippMetaData(\'{outPathStk}\', angles=angles); '
+                f'md.setMetaDataColumns(np.ones(len(md)), \'subtomo_labels\'); '
+                f'md.write(\'{outPath}\')"')
+        return cmd
+
+    @classmethod
     def defineBinaries(cls, env):
         installation_commands = []
         conda_activation_command = cls.getCondaActivationCmd()
