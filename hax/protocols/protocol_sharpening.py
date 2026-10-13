@@ -120,7 +120,7 @@ class JaxProtGaussianSharpening(ProtAnalysis3D, ProtFlexBase):
                             'the global size of each gaussian, pushing them towards the specified limits (normally, between 20% and 200% of a pixel). '
                             'If not applied, it will start by default value 1.0.')
 
-        form.addParam('l1Weight', params.FloatParam, default=0.8,
+        form.addParam('l1Weight', params.FloatParam, default=0.2,
                        label='Outlier and sharpening weighter',
                        help='This parameter can hold outliers (noise) and smooth surfaces accountable while training. The higher the value, '
                             'the more force it will apply on structural outliers and it will prevent the network from oversmooth the structure, '
