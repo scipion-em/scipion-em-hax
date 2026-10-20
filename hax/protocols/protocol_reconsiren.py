@@ -122,6 +122,28 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D, ProtFlexBase):
                             "symmetry is provided, the network will learn a symmetry broken set of angles in c1. Therefore, the angles can be directly used "
                             "in a reconstruction/refinement.)")
 
+        group = form.addGroup("Pose search")
+        group.addParam('useAnchorRotations', params.BooleanParam, default=True,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label="Use anchor rotations?",
+                       help="When set, the poses proposed by the encoder are composed with a fixed set of anchor rotations spread "
+                            "on a spherical grid (one per pose hypothesis), which biases the ab initio pose search to cover "
+                            "orientation space more evenly.")
+
+        group.addParam('numComponents', params.IntParam, default=18,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label="Number of pose hypotheses",
+                       help="Number of candidate pose hypotheses the pose encoder proposes per image during the ab initio search. "
+                            "For every image the network evaluates this many orientations, renders a projection for each and keeps "
+                            "the best-matching one. A larger value makes the pose search more robust to local minima, but increases "
+                            "GPU memory and compute roughly linearly (this is the main driver of ReconSIREN's training footprint).")
+
+        group.addParam('candidateCoverageWeight', params.FloatParam, default=0.01,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label="Candidate coverage weight",
+                       help="Weight of the bank-aware spherical occupancy KL, which spreads the pose hypotheses over the projection "
+                            "sphere during the first epochs of the ab initio search. Set to 0 to disable.")
+
         form.addSection(label='Network')
         form.addParam('fineTune', params.BooleanParam, default=False, label='Fine tune previous network?',
                       help='When set to Yes, you will be able to provide a previously trained ReconSIREN network to refine it with new '
@@ -150,7 +172,7 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D, ProtFlexBase):
                             "of images - set to default to 50 - as a rule of thumb, consider 50 to 100 epochs enough "
                             "for 100k images / if your dataset is bigger or smaller, scale this value proportionally to it")
 
-        group.addParam('batchSize', params.IntParam, default=64, label='Number of images in batch',
+        group.addParam('batchSize', params.IntParam, default=8, label='Number of images in batch',
                        help="Determines how many images will be load in the GPU at any moment during training (set by "
                             "default to 8 - you can control GPU memory usage easily by tuning this parameter to fit your "
                             "hardware requirements - we recommend using tools like nvidia-smi to monitor and/or measure "
@@ -165,6 +187,134 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D, ProtFlexBase):
                             "it's stable but very slow and might get stuck before reaching the bottom. A good default is "
                             "often 0.0001. If training fails or errors explode, try making the lr 10 times smaller (e.g., "
                             "0.001 --> 0.0001).")
+
+        group.addParam('datasetSplitFraction', params.StringParam, default='0.8,0.2',
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Training/validation split',
+                       help="Fractions used to split the data into a training and a validation subset, following the format: "
+                            "training_fraction,validation_fraction. The validation subset is only used to evaluate the network "
+                            "and never updates its parameters. NOTE: both fractions must add up to one.")
+
+        group = form.addGroup("Logging")
+        group.addParam('logImagesEvery', params.IntParam, default=1,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Log images every (epochs)',
+                       help="How often (in epochs) to log the cheap intermediate results to Tensorboard: the predicted images "
+                            "and the central slices of the predicted volumes. Set to 0 to disable.")
+
+        group.addParam('logLandscapeEvery', params.IntParam, default=5,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Log landscape every (epochs)',
+                       help="How often (in epochs) to log the expensive intermediate results: the latent space embedding "
+                            "(Tensorboard projector), the intermediate volumes written to disk and the angular distribution "
+                            "plots. Set to 0 to disable. NOTE: the embedding alone costs several seconds per call, so on "
+                            "small datasets it can dominate the training time.")
+
+        group.addParam('logCheckpointEvery', params.IntParam, default=5,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Save checkpoint every (epochs)',
+                       help="How often (in epochs) to write the intermediate checkpoint used to resume an interrupted "
+                            "training. Set to 0 to disable.")
+
+        group.addParam('logTimeBudget', params.FloatParam, default=0.0,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Logging time budget',
+                       help="Maximum fraction of the total wall clock that may be spent logging (e.g. 0.05 for 5%). When "
+                            "exceeded, the expensive logging is skipped until training catches up. Set to 0 to disable.")
+
+        group.addParam('logSync', params.BooleanParam, default=False,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Log on the training thread?',
+                       help="By default, logging runs on a background thread so it overlaps with the next epoch. When set, "
+                            "logs are written in lockstep with training (e.g. while debugging).")
+
+        form.addSection(label='Reconstruction')
+        form.addParam('reconstructionMode', params.EnumParam, choices=['joint', 'het_only'], default=0,
+                      display=params.EnumParam.DISPLAY_HLIST,
+                      label='Reconstruction mode',
+                      help="* *joint*: learn a consensus map and a heterogeneity decoder that deviates from it\n"
+                           "* *het_only*: skip the consensus part altogether, making the heterogeneous volume its own ab "
+                           "initio map (no consensus map is generated as output)")
+
+        form.addParam('numberGaussians', params.IntParam, label='Number of gaussians (fixed)',
+                      expertLevel=params.LEVEL_ADVANCED, allowsNull=True,
+                      help="Number of Gaussians in the point cloud. With a reference volume the Gaussians are fitted to it "
+                           "before training (default 10000). Fully ab initio (no starting volume) the default is derived "
+                           "from the estimated particle extent so the cloud can tile the particle at the splat width. Set "
+                           "this parameter to override either default (e.g. from the number of residues in your protein).")
+
+        form.addParam('extentEstimation', params.BooleanParam, default=True,
+                      expertLevel=params.LEVEL_ADVANCED, condition='not inputVolume',
+                      label='Estimate particle extent?',
+                      help="Estimate the particle extent ab initio from the raw images (per-pixel variance excess over the "
+                           "noise floor). If set to No, a fixed quarter-box initialization ball and the default Gaussian "
+                           "count are used instead.")
+
+        form.addParam('consensusParameterization', params.EnumParam, choices=['direct', 'network'], default=0,
+                      expertLevel=params.LEVEL_ADVANCED, condition='reconstructionMode == 0',
+                      display=params.EnumParam.DISPLAY_HLIST,
+                      label='Consensus parameterization',
+                      help="Parameterization of the consensus Gaussian deltas.")
+
+        group = form.addGroup("Heterogeneity")
+        group.addParam('heterogeneityProfile', params.EnumParam, choices=['legacy', 'anti_collapse'], default=1,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       display=params.EnumParam.DISPLAY_HLIST,
+                       label='Heterogeneity profile',
+                       help="* *anti_collapse*: staged residual training with decoder centering, a masked/normalized multiscale "
+                            "loss and bank-backed latent variance/covariance statistics\n"
+                            "* *legacy*: historical objective")
+
+        group.addParam('latDim', params.IntParam, default=8,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Latent space dimension',
+                       help="Dimension of the heterogeneity latent space.")
+
+        group.addParam('hetStartEpoch', params.IntParam, allowsNull=True,
+                       expertLevel=params.LEVEL_ADVANCED, condition='reconstructionMode == 0',
+                       label='Heterogeneity start epoch',
+                       help="First epoch that trains heterogeneity, providing a consensus-only warm-up. If not provided, it "
+                            "depends on the heterogeneity profile: 0 for legacy and 5 for anti_collapse.")
+
+        group = form.addGroup("Regularization")
+        group.addParam('whitenLossWeight', params.FloatParam, default=0.5,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Whitened loss weight',
+                       help="Weight in [0,1] for the noise-whitened consensus reconstruction loss. The dataset noise spectrum is "
+                            "estimated once from the particle solvent corners; whitening equalises the per-frequency-shell SNR "
+                            "so high-resolution shells receive real gradient. Set to 0 to disable.")
+
+        group.addParam('supportWeight', params.FloatParam, default=1.0,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Support penalty weight',
+                       help="Weight of the shrink-wrap support penalty: mass outside a spherical support re-derived every epoch "
+                            "from the converging cloud itself (no mask needed). It only suppresses background dust. Set to 0 "
+                            "to disable.")
+
+        group.addParam('spacingPriorWeight', params.FloatParam, default=0.05,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Spacing prior weight',
+                       help="Weight of the kNN spacing prior: penalizes mass-carrying neighbours further apart than ~2 splat "
+                            "widths (density visually fragments) or closer than ~0.7 (redundant stacking). Active once the "
+                            "pose warm-up finishes. Set to 0 to disable.")
+
+        group.addParam('amplitudeSmoothnessWeight', params.FloatParam, default=0.01,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Amplitude smoothness weight',
+                       help="Weight of the kNN amplitude-smoothness prior (graph Laplacian on Gaussian masses), so one "
+                            "iso-surface threshold traces the whole chain instead of beading. Active once the pose warm-up "
+                            "finishes. Set to 0 to disable.")
+
+        group.addParam('pointRecycling', params.BooleanParam, default=True,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Recycle dead Gaussians?',
+                       help="Periodically recycle amplitude-dead Gaussians next to mass-carrying ones.")
+
+        group.addParam('recycleEvery', params.IntParam, default=5,
+                       expertLevel=params.LEVEL_ADVANCED, condition='pointRecycling',
+                       label='Recycle every (epochs)',
+                       help="Epoch cadence for point recycling after the warm-up.")
+
         form.addParallelSection(threads=4, mpi=0)
 
     def _createFilenameTemplates(self):
@@ -250,8 +400,39 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D, ProtFlexBase):
         args = "--md %s --sr %f --epochs %d --batch_size %d --learning_rate %s --output_path %s --symmetry_group %s " \
                % (md_file, sr, epochs, batch_size, learningRate, out_path, symmetry)
 
+        args += "--dataset_split_fraction %s --num_components %d --candidate_coverage_weight %s " \
+                "--reconstruction_mode %s --heterogeneity_profile %s --lat_dim %d --whiten_loss_weight %s " \
+                "--support_weight %s --spacing_prior_weight %s --amplitude_smoothness_weight %s --recycle_every %d " \
+                "--log_images_every %d --log_landscape_every %d --log_checkpoint_every %d --log_time_budget %s " \
+                % (self.datasetSplitFraction.get().replace(" ", ""), self.numComponents.get(),
+                   self.candidateCoverageWeight.get(), self.getEnumText('reconstructionMode'),
+                   self.getEnumText('heterogeneityProfile'), self.latDim.get(), self.whitenLossWeight.get(),
+                   self.supportWeight.get(), self.spacingPriorWeight.get(), self.amplitudeSmoothnessWeight.get(),
+                   self.recycleEvery.get(), self.logImagesEvery.get(), self.logLandscapeEvery.get(),
+                   self.logCheckpointEvery.get(), self.logTimeBudget.get())
+
+        if self.reconstructionMode.get() == 0:
+            args += '--consensus_parameterization %s ' % self.getEnumText('consensusParameterization')
+
+            if self.hetStartEpoch.get() is not None:
+                args += '--het_start_epoch %d ' % self.hetStartEpoch.get()
+
+        if self.numberGaussians.get() is not None:
+            args += '--num_gaussians %d ' % self.numberGaussians.get()
+
+        if not self.useAnchorRotations.get():
+            args += '--do_not_use_anchor_rotations '
+
+        if not self.pointRecycling.get():
+            args += '--no_point_recycling '
+
+        if self.logSync.get():
+            args += '--log_sync '
+
         if self.inputVolume.get():
             args += '--vol %s ' % vol_file
+        elif not self.extentEstimation.get():
+            args += '--no_extent_estimation '
 
         if self.inputVolumeMask.get():
             args += '--mask %s ' % mask_file
@@ -329,16 +510,19 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D, ProtFlexBase):
             partSet.append(outParticle)
             idx += 1
 
-        outVols = self._createSetOfVolumes()
-        outVols.setSamplingRate(inputSet.getSamplingRate())
-        outVol = Volume()
-        outVol.setSamplingRate(inputSet.getSamplingRate())
+        # The het_only mode does not reconstruct a consensus map
+        isJoint = self.reconstructionMode.get() == 0
+        if isJoint:
+            outVols = self._createSetOfVolumes()
+            outVols.setSamplingRate(inputSet.getSamplingRate())
+            outVol = Volume()
+            outVol.setSamplingRate(inputSet.getSamplingRate())
 
-        ImageHandler().scaleSplines(out_path_vol, out_path_vol, finalDimension=inputSet.getXDim(), overwrite=True)
-        ImageHandler().setSamplingRate(out_path_vol, inputSet.getSamplingRate())
+            ImageHandler().scaleSplines(out_path_vol, out_path_vol, finalDimension=inputSet.getXDim(), overwrite=True)
+            ImageHandler().setSamplingRate(out_path_vol, inputSet.getSamplingRate())
 
-        outVol.setLocation(out_path_vol)
-        outVols.append(outVol)
+            outVol.setLocation(out_path_vol)
+            outVols.append(outVol)
 
         outHetVols = self._createSetOfVolumes(suffix='Het')
         outHetVols.setSamplingRate(inputSet.getSamplingRate())
@@ -355,8 +539,9 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D, ProtFlexBase):
         self._defineOutputs(outputParticles=partSet)
         self._defineTransformRelation(inputSet, partSet)
 
-        self._defineOutputs(outputVolumes=outVols)
-        self._defineTransformRelation(inputSet, outVols)
+        if isJoint:
+            self._defineOutputs(outputVolumes=outVols)
+            self._defineTransformRelation(inputSet, outVols)
 
         self._defineOutputs(outputHetVolumes=outHetVols)
         self._defineTransformRelation(inputSet, outHetVols)

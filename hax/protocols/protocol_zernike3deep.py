@@ -105,16 +105,29 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
         group.addParam(
             "ctfType",
             params.EnumParam,
-            choices=["None", "apply", "wiener", "precorrect"],
+            choices=["None", "apply", "wiener", "precorrect", "premultiplied"],
             default=1,
             label="CTF handling",
             help=(
                 "* *None*: CTF will not be considered\n"
                 "* *Apply*: CTF is applied to the projection generated from the reference map\n"
                 "* *Wiener*: input particle is CTF corrected by a Wiener fiter\n"
-                "* *Precorrect: similar to Wiener but CTF has already been corrected"
+                "* *Precorrect: similar to Wiener but CTF has already been corrected\n"
+                "* *Premultiplied*: input particles have already been multiplied by their CTF"
             ),
         )
+
+        group.addParam('particleDiameter', params.FloatParam, allowsNull=True,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Particle diameter (A)',
+                       help="Particle diameter in Angstroms. It defines the background used to normalize the images and the "
+                            "soft circular mask applied to them. If not provided, it is derived from the extent of the mask.")
+
+        group.addParam('normalizeImages', params.BooleanParam, default=False,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Normalize images?',
+                       help="Normalize each particle (zero mean and unit standard deviation in the background outside the "
+                            "particle) before the encoder, the loss and the contrast fit of the Gaussians.")
 
         # ------------------------
         # TRAINING GROUP
@@ -164,7 +177,14 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
                              "for 100k images / if your dataset is bigger or smaller, scale this value proportionally to it"
         )
 
+        train.addParam('autoBatchSize', params.BooleanParam, default=False,
+                       label='Estimate batch size automatically?',
+                       help="When set, Zernike3Deep estimates the largest batch size that fits on your GPU (this maximizes "
+                            "GPU utilization, not necessarily accuracy)."
+        )
+
         train.addParam("batchSize", params.IntParam, default=8, label='Number of images in batch',
+                       condition='not autoBatchSize',
                        help="Determines how many images will be load in the GPU at any moment during training (set by "
                             "default to 8 - you can control GPU memory usage easily by tuning this parameter to fit your "
                             "hardware requirements - we recommend using tools like nvidia-smi to monitor and/or measure "
@@ -181,6 +201,93 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
                  "it's stable but very slow and might get stuck before reaching the bottom. A good default is "
                  "often 0.0001. If training fails or errors explode, try making the lr 10 times smaller (e.g., "
                  "0.001 --> 0.0001)."
+        )
+
+        train.addParam('datasetSplitFraction', params.StringParam, default='0.8,0.2',
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Training/validation split',
+                       help="Fractions used to split the data into a training and a validation subset, following the format: "
+                            "training_fraction,validation_fraction. The validation subset is only used to evaluate the network "
+                            "and never updates its parameters. NOTE: both fractions must add up to one."
+        )
+
+        train.addParam('perImageContrast', params.EnumParam, choices=['off', 'relative', 'absolute'], default=0,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       display=params.EnumParam.DISPLAY_HLIST,
+                       label='Per image contrast',
+                       help="Fit one contrast scale per image before the reconstruction loss.\n"
+                            "* *off*: no per image contrast\n"
+                            "* *relative*: scales normalised to a unit batch mean\n"
+                            "* *absolute*: raw least-squares scale"
+        )
+
+        train = form.addGroup("Latent space")
+        train.addParam('klLambda', params.FloatParam, default=0.0,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='KL divergence weight',
+                       help="Weight of the VAE KL divergence towards a standard normal prior (summed over the batch and the "
+                            "latent dimensions). Set to 0 to disable the VAE and use a deterministic latent."
+        )
+
+        train.addParam('nestedDropout', params.FloatParam, default=0.0,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Nested dropout',
+                       help="Nested dropout on the decoded latent: each training sample keeps only its first k dimensions, "
+                            "k ~ Geometric(p), so the dimensions are ordered by importance (PCA-like). Typical values are "
+                            "0.1 to 0.5. Set to 0 to disable."
+        )
+
+        train.addParam('noiseInvarianceStrength', params.FloatParam, default=0.0,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Noise invariance strength',
+                       help="Strength of the penalty 1 - correlation, per latent dimension, between the latents of the image "
+                            "and of the image with a second draw of noise coloured like its background. After the first "
+                            "epoch, its weight is recalibrated every epoch so its encoder gradient is this fraction of the "
+                            "reconstruction one. Typical values are 0.1 to 0.5. Set to 0 to disable."
+        )
+
+        train.addParam('decouplingLambda', params.FloatParam, default=1e-4,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Decoupling weight',
+                       help="Weight of the decoupling regularization that makes the latent invariant to pose and CTF."
+        )
+
+        train = form.addGroup("Logging")
+        train.addParam('logImagesEvery', params.IntParam, default=1,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Log images every (epochs)',
+                       help="How often (in epochs) to log the cheap intermediate results to Tensorboard: the predicted images "
+                            "and the central slices of the predicted volumes. Set to 0 to disable."
+        )
+
+        train.addParam('logLandscapeEvery', params.IntParam, default=5,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Log landscape every (epochs)',
+                       help="How often (in epochs) to log the expensive intermediate results: the latent space embedding "
+                            "(Tensorboard projector), the intermediate volumes written to disk and the angular distribution "
+                            "plots. Set to 0 to disable. NOTE: the embedding alone costs several seconds per call, so on "
+                            "small datasets it can dominate the training time."
+        )
+
+        train.addParam('logCheckpointEvery', params.IntParam, default=5,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Save checkpoint every (epochs)',
+                       help="How often (in epochs) to write the intermediate checkpoint used to resume an interrupted "
+                            "training. Set to 0 to disable."
+        )
+
+        train.addParam('logTimeBudget', params.FloatParam, default=0.0,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Logging time budget',
+                       help="Maximum fraction of the total wall clock that may be spent logging (e.g. 0.05 for 5%). When "
+                            "exceeded, the expensive logging is skipped until training catches up. Set to 0 to disable."
+        )
+
+        train.addParam('logSync', params.BooleanParam, default=False,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Log on the training thread?',
+                       help="By default, logging runs on a background thread so it overlaps with the next epoch. When set, "
+                            "logs are written in lockstep with training (e.g. while debugging)."
         )
 
         train = form.addGroup("Zernike3D basis parameters")
@@ -208,6 +315,67 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
                            "with high-fidelity. However, if you prefer to fix the number of Gaussians in advance based on your own criterium (e.g., "
                            "the number of residues in your protein), you can set this parameter. When set, the Zernike3Deep will fit this fixed number of Gaussians "
                            "so that the reproduce the reference volume as well as possible.")
+
+        form.addParam('fitResolution', params.FloatParam, label='Gaussian fit resolution (A)',
+                      expertLevel=params.LEVEL_ADVANCED,
+                      allowsNull=True,
+                      help="Resolution (in Angstroms) the automatic Gaussian fit has to reproduce. If not provided, the number "
+                           "of Gaussians is grown until the fit reaches FSC >= 0.5 on every populated shell.")
+
+        form.addParam('deformationStrength', params.FloatParam, default=0.3,
+                      expertLevel=params.LEVEL_ADVANCED,
+                      label='Deformation prior strength',
+                      help="Strength of the graph deformation priors (relative edge strain + repulsion) with respect to the "
+                           "reconstruction loss: after the first epoch, the prior weight is set once (then kept fixed) so its "
+                           "gradient on the decoder is this fraction of the reconstruction gradient. Lower for larger motions, "
+                           "higher for stiffer ones. Set to 0 to disable.")
+
+        form.addParam('strainPenalty', params.EnumParam, choices=['huber', 'bounded'], default=0,
+                      expertLevel=params.LEVEL_ADVANCED,
+                      display=params.EnumParam.DISPLAY_HLIST,
+                      label='Strain penalty',
+                      help="Penalty on the relative edge strain.\n"
+                           "* *huber*: grows without limit with the strain\n"
+                           "* *bounded*: saturates, so domains stay rigid while a contact between them can open at a fixed cost")
+
+        group = form.addGroup("Pose refinement")
+        group.addParam('rigidGauge', params.EnumParam, choices=['core', 'mass', 'off'], default=0,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       display=params.EnumParam.DISPLAY_HLIST,
+                       label='Rigid gauge',
+                       help="Remove the global rigid motion from the deformation field so pose errors go to the pose head.\n"
+                            "* *core*: frame fitted on the least-moving points\n"
+                            "* *mass*: mass-weighted fit\n"
+                            "* *off*: diagnostic only")
+
+        group.addParam('rigidDriftLambda', params.FloatParam, default=1.0,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Rigid drift weight',
+                       help="Weight of the penalty on the rigid motion the gauge removes from the deformation field.")
+
+        group.addParam('poseRefineReg', params.FloatParam, default=0.1,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Pose refinement penalty',
+                       help="Weight of the hinge penalising pose refinements beyond the maximum free rotation. Set to 0 to "
+                            "disable.")
+
+        group.addParam('poseRefineMaxAngle', params.FloatParam, default=8.0,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Maximum free rotation (deg)',
+                       help="Rotation (degrees) the pose refinement may apply freely; the excess is penalised with the pose "
+                            "refinement penalty.")
+
+        group.addParam('shiftRefineReg', params.FloatParam, default=0.1,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Shift refinement penalty',
+                       help="Weight of the hinge penalising shift refinements beyond the maximum free shift. Set to 0 to "
+                            "disable.")
+
+        group.addParam('shiftRefineMax', params.FloatParam, default=4.0,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Maximum free shift (px)',
+                       help="Shift (pixels) the refinement may apply freely; the excess is penalised with the shift "
+                            "refinement penalty.")
 
     def _createFilenameTemplates(self):
         """Centralize how files are called"""
@@ -314,7 +482,7 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
         if not os.path.isdir(out_path):
             os.mkdir(out_path)
 
-        batch_size = self.batchSize.get()
+        batch_size = "auto" if self.autoBatchSize.get() else self.batchSize.get()
         learningRate = self.learningRate.get()
         epochs = self.epochs.get()
         latDim = self.latDim.get()
@@ -324,7 +492,7 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
         sr = correctionFactor * self.inputParticles.get().getSamplingRate()
 
         args = (
-            "--md %s --sr %f --lat_dim %d --epochs %d --batch_size %d --learning_rate %s --L1 %d --L2 %d --vol %s "
+            "--md %s --sr %f --lat_dim %d --epochs %d --batch_size %s --learning_rate %s --L1 %d --L2 %d --vol %s "
             "--mask %s --output_path %s "
             % (
                 md_file,
@@ -341,6 +509,34 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
             )
         )
 
+        args += (
+            "--dataset_split_fraction %s --per_image_contrast %s --kl_lambda %s --nested_dropout %s "
+            "--noise_invariance_strength %s --decoupling_lambda %s --deformation_strength %s --strain_penalty %s "
+            "--rigid_gauge %s --rigid_drift_lambda %s --pose_refine_reg %s --pose_refine_max_angle %s "
+            "--shift_refine_reg %s --shift_refine_max %s --log_images_every %d --log_landscape_every %d "
+            "--log_checkpoint_every %d --log_time_budget %s "
+            % (
+                self.datasetSplitFraction.get().replace(" ", ""),
+                self.getEnumText("perImageContrast"),
+                self.klLambda.get(),
+                self.nestedDropout.get(),
+                self.noiseInvarianceStrength.get(),
+                self.decouplingLambda.get(),
+                self.deformationStrength.get(),
+                self.getEnumText("strainPenalty"),
+                self.getEnumText("rigidGauge"),
+                self.rigidDriftLambda.get(),
+                self.poseRefineReg.get(),
+                self.poseRefineMaxAngle.get(),
+                self.shiftRefineReg.get(),
+                self.shiftRefineMax.get(),
+                self.logImagesEvery.get(),
+                self.logLandscapeEvery.get(),
+                self.logCheckpointEvery.get(),
+                self.logTimeBudget.get(),
+            )
+        )
+
         if self.ctfType != 0:
             if self.ctfType.get() == 1:
                 args += "--ctf_type apply "
@@ -348,8 +544,19 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
                 args += "--ctf_type wiener "
             elif self.ctfType.get() == 3:
                 args += "--ctf_type precorrect "
+            elif self.ctfType.get() == 4:
+                args += "--ctf_type premultiplied "
         else:
             args += "--ctf_type None "
+
+        if self.particleDiameter.get() is not None:
+            args += "--particle_diameter %s " % self.particleDiameter.get()
+
+        if self.normalizeImages:
+            args += "--normalize_images "
+
+        if self.logSync:
+            args += "--log_sync "
 
         if self.lazyLoad:
             args += "--load_images_to_ram "
@@ -359,6 +566,9 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
 
         if self.numberGaussians.get() is not None:
             args += '--num_gaussians %d ' % self.numberGaussians.get()
+
+        if self.fitResolution.get() is not None:
+            args += '--fit_resolution %s ' % self.fitResolution.get()
 
         if self.useGpu.get():
             gpu = str(self.getGpuList()[0])
@@ -443,10 +653,12 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
         if self.ctfType.get() != 0:
             if self.ctfType.get() == 1:
                 partSet.getFlexInfo().ctfType = String("apply")
-            elif self.ctfType.get() == 1:
-                partSet.getFlexInfo().ctfType = String("wiener")
             elif self.ctfType.get() == 2:
+                partSet.getFlexInfo().ctfType = String("wiener")
+            elif self.ctfType.get() == 3:
                 partSet.getFlexInfo().ctfType = String("precorrect")
+            elif self.ctfType.get() == 4:
+                partSet.getFlexInfo().ctfType = String("premultiplied")
 
         if self.useGpu.get():
             gpu = str(self.getGpuList()[0])
