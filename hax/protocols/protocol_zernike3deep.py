@@ -124,7 +124,6 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
                             "soft circular mask applied to them. If not provided, it is derived from the extent of the mask.")
 
         group.addParam('normalizeImages', params.BooleanParam, default=False,
-                       expertLevel=params.LEVEL_ADVANCED,
                        label='Normalize images?',
                        help="Normalize each particle (zero mean and unit standard deviation in the background outside the "
                             "particle) before the encoder, the loss and the contrast fit of the Gaussians.")
@@ -211,7 +210,7 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
                             "and never updates its parameters. NOTE: both fractions must add up to one."
         )
 
-        train.addParam('perImageContrast', params.EnumParam, choices=['off', 'relative', 'absolute'], default=0,
+        train.addParam('perImageContrast', params.EnumParam, choices=['off', 'relative', 'absolute'], default=1,
                        expertLevel=params.LEVEL_ADVANCED,
                        display=params.EnumParam.DISPLAY_HLIST,
                        label='Per image contrast',
@@ -339,7 +338,7 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
                            "* *bounded*: saturates, so domains stay rigid while a contact between them can open at a fixed cost")
 
         group = form.addGroup("Pose refinement")
-        group.addParam('rigidGauge', params.EnumParam, choices=['core', 'mass', 'off'], default=0,
+        group.addParam('rigidGauge', params.EnumParam, choices=['core', 'mass', 'off'], default=2,
                        expertLevel=params.LEVEL_ADVANCED,
                        display=params.EnumParam.DISPLAY_HLIST,
                        label='Rigid gauge',

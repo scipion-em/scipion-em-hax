@@ -133,7 +133,6 @@ class JaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
                             "reconstruction mask.")
 
         group.addParam('normalizeImages', params.BooleanParam, default=False,
-                       expertLevel=params.LEVEL_ADVANCED,
                        label='Normalize images?',
                        help="Normalize each particle (zero mean and unit standard deviation in the background) before the "
                             "encoder, the losses and the contrast fit of the Gaussians.")
@@ -199,7 +198,7 @@ class JaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
                        help="Use a linear warmup (10% of training) plus cosine-decay learning-rate schedule instead of a "
                             "constant learning rate.")
 
-        group.addParam('encoderArch', params.EnumParam, choices=['convnn', 'mlpnn', 'resmlp'], default=0,
+        group.addParam('encoderArch', params.EnumParam, choices=['convnn', 'mlpnn', 'resmlp'], default=2,
                        expertLevel=params.LEVEL_ADVANCED,
                        display=params.EnumParam.DISPLAY_HLIST,
                        label='Encoder architecture',
@@ -243,7 +242,7 @@ class JaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
                             "unweighted for the first 10 epochs, then updated every epoch from a running average of the "
                             "residual, keeping the overall loss scale.")
 
-        group.addParam('perImageContrast', params.EnumParam, choices=['off', 'relative', 'absolute'], default=0,
+        group.addParam('perImageContrast', params.EnumParam, choices=['off', 'relative', 'absolute'], default=1,
                        expertLevel=params.LEVEL_ADVANCED,
                        display=params.EnumParam.DISPLAY_HLIST,
                        label='Per image contrast',
@@ -257,7 +256,7 @@ class JaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
                        help="Weight of the VAE KL divergence towards a standard normal prior. Set to 0 to disable the VAE and "
                             "use a deterministic latent.")
 
-        group.addParam('klFreeBits', params.FloatParam, default=0.5,
+        group.addParam('klFreeBits', params.FloatParam, default=0.0,
                        expertLevel=params.LEVEL_ADVANCED,
                        condition='klLambda != 0',
                        label='KL free bits',
@@ -435,7 +434,7 @@ class JaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
                             'focusing the analysis of heterogeneity to a region of interest enclosed by the provided reference mask.')
 
         group = form.addGroup("Pose refinement")
-        group.addParam('rigidGauge', params.EnumParam, choices=['core', 'mass', 'off'], default=0,
+        group.addParam('rigidGauge', params.EnumParam, choices=['core', 'mass', 'off'], default=2,
                        expertLevel=params.LEVEL_ADVANCED,
                        display=params.EnumParam.DISPLAY_HLIST,
                        label='Rigid gauge',
