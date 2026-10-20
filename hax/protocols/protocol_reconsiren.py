@@ -229,13 +229,6 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D, ProtFlexBase):
                             "logs are written in lockstep with training (e.g. while debugging).")
 
         form.addSection(label='Reconstruction')
-        form.addParam('reconstructionMode', params.EnumParam, choices=['joint', 'het_only'], default=0,
-                      display=params.EnumParam.DISPLAY_HLIST,
-                      label='Reconstruction mode',
-                      help="* *joint*: learn a consensus map and a heterogeneity decoder that deviates from it\n"
-                           "* *het_only*: skip the consensus part altogether, making the heterogeneous volume its own ab "
-                           "initio map (no consensus map is generated as output)")
-
         form.addParam('numberGaussians', params.IntParam, label='Number of gaussians (fixed)',
                       expertLevel=params.LEVEL_ADVANCED, allowsNull=True,
                       help="Number of Gaussians in the point cloud. With a reference volume the Gaussians are fitted to it "
@@ -251,7 +244,7 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D, ProtFlexBase):
                            "count are used instead.")
 
         form.addParam('consensusParameterization', params.EnumParam, choices=['direct', 'network'], default=0,
-                      expertLevel=params.LEVEL_ADVANCED, condition='reconstructionMode == 0',
+                      expertLevel=params.LEVEL_ADVANCED,
                       display=params.EnumParam.DISPLAY_HLIST,
                       label='Consensus parameterization',
                       help="Parameterization of the consensus Gaussian deltas.")
@@ -271,7 +264,7 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D, ProtFlexBase):
                        help="Dimension of the heterogeneity latent space.")
 
         group.addParam('hetStartEpoch', params.IntParam, allowsNull=True,
-                       expertLevel=params.LEVEL_ADVANCED, condition='reconstructionMode == 0',
+                       expertLevel=params.LEVEL_ADVANCED,
                        label='Heterogeneity start epoch',
                        help="First epoch that trains heterogeneity, providing a consensus-only warm-up. If not provided, it "
                             "depends on the heterogeneity profile: 0 for legacy and 5 for anti_collapse.")
@@ -401,21 +394,18 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D, ProtFlexBase):
                % (md_file, sr, epochs, batch_size, learningRate, out_path, symmetry)
 
         args += "--dataset_split_fraction %s --num_components %d --candidate_coverage_weight %s " \
-                "--reconstruction_mode %s --heterogeneity_profile %s --lat_dim %d --whiten_loss_weight %s " \
+                "--consensus_parameterization %s --heterogeneity_profile %s --lat_dim %d --whiten_loss_weight %s " \
                 "--support_weight %s --spacing_prior_weight %s --amplitude_smoothness_weight %s --recycle_every %d " \
                 "--log_images_every %d --log_landscape_every %d --log_checkpoint_every %d --log_time_budget %s " \
                 % (self.datasetSplitFraction.get().replace(" ", ""), self.numComponents.get(),
-                   self.candidateCoverageWeight.get(), self.getEnumText('reconstructionMode'),
+                   self.candidateCoverageWeight.get(), self.getEnumText('consensusParameterization'),
                    self.getEnumText('heterogeneityProfile'), self.latDim.get(), self.whitenLossWeight.get(),
                    self.supportWeight.get(), self.spacingPriorWeight.get(), self.amplitudeSmoothnessWeight.get(),
                    self.recycleEvery.get(), self.logImagesEvery.get(), self.logLandscapeEvery.get(),
                    self.logCheckpointEvery.get(), self.logTimeBudget.get())
 
-        if self.reconstructionMode.get() == 0:
-            args += '--consensus_parameterization %s ' % self.getEnumText('consensusParameterization')
-
-            if self.hetStartEpoch.get() is not None:
-                args += '--het_start_epoch %d ' % self.hetStartEpoch.get()
+        if self.hetStartEpoch.get() is not None:
+            args += '--het_start_epoch %d ' % self.hetStartEpoch.get()
 
         if self.numberGaussians.get() is not None:
             args += '--num_gaussians %d ' % self.numberGaussians.get()
@@ -510,19 +500,16 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D, ProtFlexBase):
             partSet.append(outParticle)
             idx += 1
 
-        # The het_only mode does not reconstruct a consensus map
-        isJoint = self.reconstructionMode.get() == 0
-        if isJoint:
-            outVols = self._createSetOfVolumes()
-            outVols.setSamplingRate(inputSet.getSamplingRate())
-            outVol = Volume()
-            outVol.setSamplingRate(inputSet.getSamplingRate())
+        outVols = self._createSetOfVolumes()
+        outVols.setSamplingRate(inputSet.getSamplingRate())
+        outVol = Volume()
+        outVol.setSamplingRate(inputSet.getSamplingRate())
 
-            ImageHandler().scaleSplines(out_path_vol, out_path_vol, finalDimension=inputSet.getXDim(), overwrite=True)
-            ImageHandler().setSamplingRate(out_path_vol, inputSet.getSamplingRate())
+        ImageHandler().scaleSplines(out_path_vol, out_path_vol, finalDimension=inputSet.getXDim(), overwrite=True)
+        ImageHandler().setSamplingRate(out_path_vol, inputSet.getSamplingRate())
 
-            outVol.setLocation(out_path_vol)
-            outVols.append(outVol)
+        outVol.setLocation(out_path_vol)
+        outVols.append(outVol)
 
         outHetVols = self._createSetOfVolumes(suffix='Het')
         outHetVols.setSamplingRate(inputSet.getSamplingRate())
@@ -539,9 +526,8 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D, ProtFlexBase):
         self._defineOutputs(outputParticles=partSet)
         self._defineTransformRelation(inputSet, partSet)
 
-        if isJoint:
-            self._defineOutputs(outputVolumes=outVols)
-            self._defineTransformRelation(inputSet, outVols)
+        self._defineOutputs(outputVolumes=outVols)
+        self._defineTransformRelation(inputSet, outVols)
 
         self._defineOutputs(outputHetVolumes=outHetVols)
         self._defineTransformRelation(inputSet, outHetVols)
