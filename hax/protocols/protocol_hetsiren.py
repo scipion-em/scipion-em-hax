@@ -142,6 +142,18 @@ class JaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
                       help='When set to Yes, you will be able to provide a previously trained HetSIREN network to refine it with new '
                            'data. If set to No, you will train a new HetSIREN network from scratch.')
 
+        form.addParam('hetsirenProtocol', params.PointerParam, condition='fineTune',
+                      label="HetSIREN network to fine tune",
+                      pointerClass='JaxProtFlexibleAlignmentHetSiren',
+                      help="Previously executed 'flexible align - HetSIREN' whose network will be fine tuned.")
+
+        form.addParam('refitReference', params.BooleanParam, default=False, condition='fineTune',
+                      expertLevel=params.LEVEL_ADVANCED,
+                      label='Refit the reference?',
+                      help="Fit the Gaussians to the starting volume (e.g. a MoDART map) and fine tune the reloaded network "
+                           "on them. Needs a starting volume and a network trained with mass transport and an implicit or "
+                           "point transformer decoder.")
+
         form.addParam('lazyLoad', params.BooleanParam, default=False,
                       expertLevel=params.LEVEL_ADVANCED, label='Lazy loading into RAM',
                       help='If provided, images will be loaded to RAM. This is recommended if you want the best performance '
@@ -402,6 +414,18 @@ class JaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
                       help='Epochs over which the per-particle amplitude change is ramped in, so motion is learned before '
                            'occupancy. Set to 0 to disable the ramp.')
 
+        form.addParam('learnReferenceEpochs', params.IntParam, expertLevel=params.LEVEL_ADVANCED, default=0,
+                      condition='massTransport and isImplicit',
+                      label='Learn reference epochs',
+                      help='Learn the positions of the reference Gaussians during the first N epochs, then freeze them. '
+                           'The learned reference is saved as an output volume. Set to 0 to disable.')
+
+        form.addParam('referenceLr', params.FloatParam, expertLevel=params.LEVEL_ADVANCED, allowsNull=True,
+                      condition='massTransport and isImplicit and learnReferenceEpochs > 0',
+                      label='Reference learning rate',
+                      help='Step size used to learn the reference positions. If not provided: '
+                           '2e-4 * sqrt(batch size / 128).')
+
         form.addParam('numberGaussians', params.IntParam, label='Number of gaussians (fixed)',
                       expertLevel=params.LEVEL_ADVANCED,
                       allowsNull=True, condition="inputVolume",
@@ -636,6 +660,11 @@ class JaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
 
             if self.isImplicit:
                 args += '--implicit_network '
+
+                if self.learnReferenceEpochs.get() > 0:
+                    args += '--learn_reference_epochs %d ' % self.learnReferenceEpochs.get()
+                    if self.referenceLr.get() is not None:
+                        args += '--reference_lr %s ' % self.referenceLr.get()
             elif self.pointTransformer:
                 args += '--point_transformer '
 
@@ -662,10 +691,12 @@ class JaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
 
         program = hax.Plugin.getProgram("hetsiren", gpu)
         if not os.path.isdir(self._getExtraPath("HetSIREN")):
-            self.runJob(program,
-                        args + f'--mode train --reload {self._getExtraPath()}'
-                        if self.fineTune else args + '--mode train',
-                        numberOfMpi=1)
+            train_args = args + '--mode train '
+            if self.fineTune:
+                train_args += '--reload %s ' % self.hetsirenProtocol.get()._getExtraPath()
+                if self.refitReference:
+                    train_args += '--refit_reference '
+            self.runJob(program, train_args, numberOfMpi=1)
         self.runJob(program, args + f'--mode predict --reload {self._getExtraPath()}', numberOfMpi=1)
 
     def createOutputStep(self):
@@ -767,6 +798,16 @@ class JaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
         self._defineOutputs(outputVolumes=outVols)
         self._defineTransformRelation(inputSet, outVols)
 
+        learned_ref = self._getExtraPath('learned_reference.mrc')
+        if os.path.isfile(learned_ref):
+            ImageHandler().scaleSplines(learned_ref, learned_ref, finalDimension=inputSet.getXDim(), overwrite=True)
+            ImageHandler().setSamplingRate(learned_ref, inputSet.getSamplingRate())
+            refVol = Volume()
+            refVol.setSamplingRate(inputSet.getSamplingRate())
+            refVol.setLocation(learned_ref)
+            self._defineOutputs(outputLearnedReference=refVol)
+            self._defineSourceRelation(inputSet, refVol)
+
     # --------------------------- INFO functions -----------------------------
     def _summary(self):
         summary = []
@@ -792,6 +833,14 @@ class JaxProtFlexibleAlignmentHetSiren(ProtAnalysis3D, ProtFlexBase):
 
         if self.latDim.get() % 2 != 0:
             errors.append("Latent space dimension must be even")
+
+        if self.fineTune and self.refitReference:
+            prot = self.hetsirenProtocol.get()
+            if not self.inputVolume.get():
+                errors.append("Refitting the reference needs a starting volume")
+            if prot is not None and not (prot.massTransport.get() and (prot.isImplicit.get() or prot.pointTransformer.get())):
+                errors.append("Refitting the reference needs a network trained with mass transport and an implicit or "
+                              "point transformer decoder")
 
         return errors
 

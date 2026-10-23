@@ -79,13 +79,14 @@ class JaxProtReconstructMoDART(ProtReconstruct3D):
         group.addParam('initialMap', params.PointerParam, pointerClass='Volume',
                       label="Initial map",
                       allowsNull=True,
-                      help='If provided, this map will be used as the initialization of the reconstruction '
-                           'process. Otherwise, an empty volume will be used')
+                      help='If provided, the reconstruction starts from this map, after matching its contrast to the '
+                           'images. Otherwise, it starts from an empty volume')
 
         group.addParam('recMask', params.PointerParam, pointerClass='VolumeMask',
                       allowsNull=True,
                       label="Reconstruction mask",
-                      help="Mask used to restrict the reconstruction space to increase performance.")
+                      help="Binary mask with the voxels to reconstruct. If not provided, it is derived from the initial map, "
+                           "or from a consensus reconstruction of the particles.")
 
         group.addParam('ctfType', params.EnumParam, choices=['None', 'Apply', 'Wiener', 'Precorrect'],
                        default=1, label="CTF correction type",
@@ -93,7 +94,7 @@ class JaxProtReconstructMoDART(ProtReconstruct3D):
                        expertLevel=params.LEVEL_ADVANCED,
                        help="* *None*: CTF will not be considered\n"
                             "* *Apply*: CTF is applied to the projection generated from the reference map\n"
-                            "* *Wiener*: input particle is CTF corrected by a Wiener fiter\n"
+                            "* *Wiener*: treated as Apply (the least-squares reconstruction already inverts the CTF)\n"
                             "* *Precorrect: similar to Wiener but CTF has already been corrected")
 
         group = form.addGroup("Motion correction")
@@ -101,7 +102,8 @@ class JaxProtReconstructMoDART(ProtReconstruct3D):
                       condition="inputParticles and isinstance(inputParticles, SetOfParticlesFlex)",
                       label="Correct motion blurred artifacts?",
                       help="Correct the conformation of the particles during the reconstruct process "
-                           "to reduce motion blurred artifacts and increase resolution. Note that this "
+                           "to reduce motion blurred artifacts and increase resolution. The pose refinement "
+                           "estimated by the network is also applied. Note that this "
                            "option requires that the particles come from HetSIREN (mass transport) or Zernike3Deep. "
                            "Otherwise, the parameter should be set to 'No'")
 
@@ -114,10 +116,21 @@ class JaxProtReconstructMoDART(ProtReconstruct3D):
         group.addParam('mode', params.EnumParam, choices=['Reconstruct', 'Gold standard'],
                       default=0, display=params.EnumParam.DISPLAY_HLIST,
                       label="Reconstruction mode",
-                      help="\t * Reconstruct: usual reconstruction of a single volume using all the images "
-                           "in the dataset\n"
-                           "\t * Gold standard: volumes halves reconstruction for FSC and local resolution "
+                      help="Two half maps (even/odd particles) are always reconstructed: their FSC filters the final map.\n"
+                           "\t * Reconstruct: only the final map is kept\n"
+                           "\t * Gold standard: the unfiltered half maps are also kept for FSC and local resolution "
                            "computations\n")
+
+        group = form.addGroup("Solver")
+        group.addParam('iterations', params.IntParam, default=10,
+                      label="Iterations",
+                      help="Conjugate gradient iterations, one pass over the particles each. More iterations recover "
+                           "finer detail and also fit more noise.")
+
+        group.addParam('regularization', params.FloatParam, default=0.0,
+                      expertLevel=params.LEVEL_ADVANCED,
+                      label="Regularization",
+                      help="Tikhonov weight, relative to the mean diagonal of the normal equations.")
 
         form.addSection(label='Data loading')
         form.addParam('lazyLoad', params.BooleanParam, default=False,
@@ -138,11 +151,15 @@ class JaxProtReconstructMoDART(ProtReconstruct3D):
 
         group = form.addGroup("Network hyperparameters")
         group.addParam('batchSize', params.IntParam, default=64, label='Number of images in batch',
-                       help="Determines how many images will be load in the GPU at any moment during training (set by "
+                       help="Determines how many images will be load in the GPU at any moment (set by "
                             "default to 64 - you can control GPU memory usage easily by tuning this parameter to fit your "
                             "hardware requirements - we recommend using tools like nvidia-smi to monitor and/or measure "
-                            "memory usage and adjust this value - keep also in mind that bigger batch sizes might be "
-                            "less precise when looking for very local motions")
+                            "memory usage and adjust this value). It does not change the result.")
+
+        group.addParam('chunkSize', params.IntParam, default=65536,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Voxels projected at a time',
+                       help="Lower it if the GPU runs out of memory; it does not change the result.")
 
         form.addParallelSection(threads=4, mpi=1)
 
@@ -178,7 +195,8 @@ class JaxProtReconstructMoDART(ProtReconstruct3D):
         output_path = self._getExtraPath()
 
         args = (f"--md {imgsFn} --sr {sr} --symmetry_group {symmetryGroup} --batch_size {batchSize} "
-                f"--output_path {output_path} ")
+                f"--iterations {self.iterations.get()} --regularization {self.regularization.get()} "
+                f"--chunk_size {self.chunkSize.get()} --output_path {output_path} ")
 
         if self.initialMap.get():
             args += f"--vol {self.initialMap.get().getFileName()} "
@@ -222,7 +240,7 @@ class JaxProtReconstructMoDART(ProtReconstruct3D):
         volume.setSamplingRate(self.inputParticles.get().getSamplingRate())
 
         if self.mode.get() == 1:
-            volume.setHalfMaps([self._getFileName('modart_first_half'), self._getFileName('modart_second_half')])
+            volume.setHalfMaps([self._getFileName('outputHalfFirst'), self._getFileName('outputHalfSecond')])
 
         # Set correct sampling rate in volume header
         ImageHandler().setSamplingRate(self._getExtraPath("modart_map.mrc"), self.inputParticles.get().getSamplingRate())
@@ -238,6 +256,7 @@ class JaxProtReconstructMoDART(ProtReconstruct3D):
         return []
 
     def _validate(self):
+        """ Try to find errors on define params. """
         errors = []
 
         mask = self.recMask.get()
@@ -245,13 +264,6 @@ class JaxProtReconstructMoDART(ProtReconstruct3D):
             data = ImageHandler(mask.getFileName()).getData()
             if not np.all(np.logical_or(data == 0, data == 1)):
                 errors.append("Mask provided is not binary. Please, provide a binary mask")
-
-        return errors
-
-    #--------------------------- UTILS functions --------------------------------------------
-    def _validate(self):
-        """ Try to find errors on define params. """
-        errors = []
 
         if self.doMotionCorrection.get():
             correction_method = self.inputParticles.get().getFlexInfo().getProgName()
