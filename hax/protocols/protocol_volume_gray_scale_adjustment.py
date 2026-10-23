@@ -45,8 +45,9 @@ from xmipp3.convert import writeSetOfParticles, matrixFromGeometry
 import hax
 
 class JaxProtVolumeAdjustment(ProtAnalysis3D, ProtFlexBase):
-    """ Protocol for volume gray values adjustment with the Volume Gray Scale Adjustment algorithm."""
-    _label = 'predict - Volume Adjustment '
+    """ Protocol to adjust the gray scale of a volume to a set of particles (closed form fit of a single
+    scale, applied to the input volume)."""
+    _label = 'adjust gray scale - volume'
     _lastUpdateVersion = VERSION_1
 
     # --------------------------- DEFINE param functions -----------------------
@@ -68,74 +69,36 @@ class JaxProtVolumeAdjustment(ProtAnalysis3D, ProtFlexBase):
 
         group.addParam('inputVolume', params.PointerParam,
                        label="Starting volume", pointerClass='Volume',
-                       help="Reference volume needed to be adjusted according to the projections. If adjustment prediction setting "
-                            "is set to True, these projections will be needed for its estimation.")
+                       help="Volume to adjust. The fitted scale is applied to this volume.")
 
         group.addParam('inputVolumeMask', params.PointerParam,
                        label="Reconstruction mask", pointerClass='VolumeMask', allowsNull=True,
-                       help="This mask helps focusing the adjustment prediction on a region of interest "
-                            "(if not provided, a inscribed spherical mask will be used).")
+                       help="Optional mask: the fit only uses the pixels inside its projection. If not provided, the "
+                            "whole image is used. The scale is applied to the whole volume either way.")
 
         group.addParam('ctfType', params.EnumParam, choices=['None', 'Apply', 'Wiener', 'Precorrect'],
                        default=1, label="CTF correction type",
                        display=params.EnumParam.DISPLAY_HLIST,
                        expertLevel=params.LEVEL_ADVANCED,
-                       help="* *None*: CTF will not be considered\n"
-                            "* *Apply*: CTF is applied to the projection generated from the reference map\n"
-                            "* *Wiener*: input particle is CTF corrected by a Wiener fiter\n"
-                            "* *Precorrect: similar to Wiener but CTF has already been corrected")
+                       help="* *None*: the particles carry no CTF\n"
+                            "* *Apply*, *Wiener*, *Precorrect*: the particles carry their CTF, which is applied to the "
+                            "projections of the volume")
 
-        form.addSection(label='Network')
-        form.addParam('fineTune', params.BooleanParam, default=False, label='Fine tune previous network?',
-                      help='When set to Yes, you will be able to provide a previously trained network to refine it with new '
-                           'data. If set to No, you will train a new network from scratch.')
-
-        form.addParam('predictsPerVoxel', params.BooleanParam, default=False,
-                      label='Predict per voxel adjustment?', expertLevel=params.LEVEL_ADVANCED,
-                      help='If not provided, the adjustment will be estimated per voxel - otherwise, adjustment will be estimated for the whole volume.')
-
-        form.addParam('lazyLoad', params.BooleanParam, default=False,
-                      expertLevel=params.LEVEL_ADVANCED, label='Lazy loading into RAM',
-                      help='If provided, images will be loaded to RAM. This is recommended if you want the best performance '
-                           'and your dataset fits in your RAM memory. If this flag is not provided, '
-                           'images will be memory mapped. When this happens, the program will trade disk space for performance. '
-                           'Thus, during the execution additional disk space will be used and the performance '
-                           'will be slightly lower compared to loading the images to RAM. Disk usage will be back to normal '
-                           'once the execution has finished.')
+        form.addSection(label='Adjustment')
+        form.addParam('fitOffset', params.BooleanParam, default=False,
+                      label='Fit an offset per image?',
+                      help="Allow an offset per particle (image = scale * projection + offset) while fitting the scale. "
+                           "Use it when the particles are not normalized to a zero-mean background. The offsets are not "
+                           "applied to the volume.")
 
         form.addParam('scratchFolder', params.PathParam,
-                      condition="not lazyLoad",
                       label='Path to SSD scratch folder',
-                      help='If you are not loading the images to RAM, we strongly recommend to provide here a path to a folder in '
-                           'a SSD/NVME disk to speed up the data loading. In general, you can expected a decrease in training performance when '
-                           'loading images > 256px on a HDD disk.')
+                      help='Optional folder in a SSD/NVME disk where the particles are cached and read from. Recommended '
+                           'when the particles are stored in a slow (HDD) disk.')
 
-        group = form.addGroup("Network hyperparameters")
-        group.addParam('latDim', params.IntParam, default=10, label='Latent space dimension',
-                       expertLevel=params.LEVEL_ADVANCED,
-                       help="Dimension of the network bottleneck (latent space dimension)")
-
-        group.addParam('epochs', params.IntParam, default=50,
-                       label='Number of training epochs',
-                       help="Number of epochs to train the network (i.e. how many times to loop over the whole dataset "
-                            "of images - set to default to 50 - as a rule of thumb, consider 50 to 100 epochs enough "
-                            "for 100k images / if your dataset is bigger or smaller, scale this value proportionally to it")
-
-        group.addParam('batchSize', params.IntParam, default=8, label='Number of images in batch',
-                       help="Determines how many images will be load in the GPU at any moment during training (set by "
-                            "default to 8 - you can control GPU memory usage easily by tuning this parameter to fit your "
-                            "hardware requirements - we recommend using tools like nvidia-smi to monitor and/or measure "
-                            "memory usage and adjust this value - keep also in mind that bigger batch sizes might be "
-                            "less precise when looking for very local motions")
-
-        group.addParam('learningRate', params.FloatParam, default=1e-4, label='Learning rate',
-                       help="The learning rate (lr) sets the speed of learning. Think of the model as trying to find the "
-                            "lowest point in a valley; the lr is the size of the step it takes on each attempt. A large "
-                            "lr (e.g., 0.01) is like taking huge leaps — it's fast but can be unstable, overshoot the "
-                            "lowest point, or cause NAN errors. A small lr (e.g., 1e-6) is like taking tiny shuffles — "
-                            "it's stable but very slow and might get stuck before reaching the bottom. A good default is "
-                            "often 0.0001. If training fails or errors explode, try making the lr 10 times smaller (e.g., "
-                            "0.001 --> 0.0001).")
+        form.addParam('batchSize', params.IntParam, default=256, label='Number of images in batch',
+                      help="How many particles are projected at once. Lower it if the GPU runs out of memory; it does "
+                           "not change the result.")
 
         form.addParallelSection(threads=0, mpi=4)
 
@@ -145,6 +108,7 @@ class JaxProtVolumeAdjustment(ProtAnalysis3D, ProtFlexBase):
             'imgsFn': self._getExtraPath('input_particles.xmd'),
             'predictedFn': self._getExtraPath('predicted_latents.xmd'),
             'fnVol': self._getExtraPath('volume.mrc'),
+            'fnVolResized': self._getExtraPath('volume_resized.mrc'),
             'fnVolMask': self._getExtraPath('mask.mrc'),
         }
         self._updateFilenamesDict(myDict)
@@ -153,7 +117,7 @@ class JaxProtVolumeAdjustment(ProtAnalysis3D, ProtFlexBase):
     def _insertAllSteps(self):
         self._createFilenameTemplates()
         self._insertFunctionStep(self.writeMetaDataStep)
-        self._insertFunctionStep(self.trainingPredictStep)
+        self._insertFunctionStep(self.adjustStep)
         self._insertFunctionStep(self.createOutputStep)
 
     def writeMetaDataStep(self):
@@ -169,10 +133,13 @@ class JaxProtVolumeAdjustment(ProtAnalysis3D, ProtFlexBase):
         ih.convert(self._getXmippFileName(inputVolume), fnVol)
         curr_vol_dim = ImageHandler(self._getXmippFileName(inputVolume)).getDimensions()[-1]
         if curr_vol_dim != Xdim:
+            fnVolResized = self._getFileName('fnVolResized')
             self.runJob("xmipp_image_resize",
-                        "-i %s --fourier %d " % (fnVol, Xdim), numberOfMpi=1,
+                        "-i %s -o %s --fourier %d " % (fnVol, fnVolResized, Xdim), numberOfMpi=1,
                         env=xmipp3.Plugin.getEnviron())
-        ih.setSamplingRate(fnVol, inputParticles.getSamplingRate())
+            ih.setSamplingRate(fnVolResized, inputParticles.getSamplingRate())
+        else:
+            ih.setSamplingRate(fnVol, inputParticles.getSamplingRate())
 
         if self.inputVolumeMask.get():
             ih = ImageHandler()
@@ -194,20 +161,15 @@ class JaxProtVolumeAdjustment(ProtAnalysis3D, ProtFlexBase):
             md[:, "subtomo_labels"] = labels
         md.write(imgsFn, overwrite=True)
 
-    def trainingPredictStep(self):
+    def adjustStep(self):
         md_file = self._getFileName('imgsFn')
-        vol_file = self._getFileName('fnVol')
+        vol_file = self._getFileName('fnVolResized')
+        if not os.path.isfile(vol_file):
+            vol_file = self._getFileName('fnVol')
         mask_file = self._getFileName('fnVolMask')
-        out_path = self._getExtraPath()
-        if not os.path.isdir(out_path):
-            os.mkdir(out_path)
-        batch_size = self.batchSize.get()
-        learningRate = self.learningRate.get()
-        epochs = self.epochs.get()
-        latDim = self.latDim.get()
         sr = self.inputParticles.get().getSamplingRate()
-        args = "--md %s --vol %s --sr %f --lat_dim %d --epochs %d --batch_size %d --learning_rate %f --output_path %s " \
-               % (md_file, vol_file, sr, latDim, epochs, batch_size, learningRate, out_path)
+        args = "--md %s --vol %s --sr %f --batch_size %d --output_path %s " \
+               % (md_file, vol_file, sr, self.batchSize.get(), self._getExtraPath())
 
         if self.inputVolumeMask.get():
             args += '--mask %s ' % mask_file
@@ -222,14 +184,11 @@ class JaxProtVolumeAdjustment(ProtAnalysis3D, ProtFlexBase):
         else:
             args += '--ctf_type None '
 
-        if not self.predictsPerVoxel:
-            args += '--predicts_value '
+        if self.fitOffset:
+            args += '--fit_offset '
 
-        if self.lazyLoad:
-            args += '--load_images_to_ram '
-        else:
-            if self.scratchFolder.get() is not None:
-                args += '--ssd_scratch_folder %s ' % self.scratchFolder.get()
+        if self.scratchFolder.get() is not None:
+            args += '--ssd_scratch_folder %s ' % self.scratchFolder.get()
 
         if self.useGpu.get():
             gpu = str(self.getGpuList()[0])
@@ -237,16 +196,16 @@ class JaxProtVolumeAdjustment(ProtAnalysis3D, ProtFlexBase):
             gpu = None
 
         program = hax.Plugin.getProgram("volume_gray_scale_adjustment", gpu)
-        if not os.path.isdir(self._getExtraPath("volumeAdjustment")):
-            self.runJob(program,
-                        args + f'--mode train --reload {self._getExtraPath()}'
-                        if self.fineTune else args + '--mode train',
-                        numberOfMpi=1)
-        self.runJob(program, args + f'--mode predict --reload {self._getExtraPath()}', numberOfMpi=1)
+        self.runJob(program, args, numberOfMpi=1)
 
     def createOutputStep(self):
         volSet = self.inputVolume.get()
         out_path = os.path.join(self._getExtraPath(), "adjusted_volume.mrc")
+
+        # The scale is fitted at the particle box, but applied to the input volume as it is
+        scale = float(np.loadtxt(self._getExtraPath("gray_scale.txt")))
+        volume = ImageHandler(self._getFileName('fnVol')).getData()
+        ImageHandler().write(scale * volume, out_path, overwrite=True, sr=volSet.getSamplingRate())
 
         outVol = Volume()
         outVol.setSamplingRate(volSet.getSamplingRate())
