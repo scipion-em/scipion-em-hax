@@ -149,6 +149,11 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D, ProtFlexBase):
                       help='When set to Yes, you will be able to provide a previously trained ReconSIREN network to refine it with new '
                            'data. If set to No, you will train a new ReconSIREN network from scratch.')
 
+        form.addParam('reconsirenProtocol', params.PointerParam, condition='fineTune',
+                      label="ReconSIREN network to fine tune",
+                      pointerClass='JaxProtAngularAlignmentReconSiren',
+                      help="Previously executed 'angular align - ReconSIREN' whose network will be fine tuned.")
+
         form.addParam('lazyLoad', params.BooleanParam, default=False,
                       expertLevel=params.LEVEL_ADVANCED, label='Lazy loading into RAM',
                       help='If provided, images will be loaded to RAM. This is recommended if you want the best performance '
@@ -457,7 +462,7 @@ class JaxProtAngularAlignmentReconSiren(ProtAnalysis3D, ProtFlexBase):
         program = hax.Plugin.getProgram("reconsiren", gpu)
         if not os.path.isdir(self._getExtraPath("ReconSIREN")):
             self.runJob(program,
-                        args + f'--mode train --reload {self._getExtraPath()}'
+                        args + f'--mode train --reload {self.reconsirenProtocol.get()._getExtraPath()}'
                         if self.fineTune else args + '--mode train',
                         numberOfMpi=1)
         self.runJob(program, args + f'--mode predict --reload {self._getExtraPath()}', numberOfMpi=1)

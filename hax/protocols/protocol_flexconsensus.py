@@ -74,6 +74,11 @@ class JaxProtTrainFlexConsensus(ProtAnalysis3D, ProtFlexBase):
                       help='When set to Yes, you will be able to provide a previously trained FlexConsensus network to refine it with new '
                            'data. If set to No, you will train a new FlexConsensus network from scratch.')
 
+        form.addParam('flexConsensusProtocol', params.PointerParam, condition='fineTune',
+                      label="FlexConsensus network to fine tune",
+                      pointerClass='JaxProtTrainFlexConsensus',
+                      help="Previously executed 'train - FlexConsensus' whose network will be fine tuned.")
+
         group = form.addGroup("Network hyperparameters")
         group.addParam('epochs', params.IntParam, default=100, label='Number of training epochs')
 
@@ -154,7 +159,7 @@ class JaxProtTrainFlexConsensus(ProtAnalysis3D, ProtFlexBase):
         program = hax.Plugin.getProgram("flexconsensus", gpu)
         if not os.path.isdir(self._getExtraPath("FlexConsensus")):
             self.runJob(program,
-                        args + f'--mode train --reload {self._getExtraPath()}'
+                        args + f'--mode train --reload {self.flexConsensusProtocol.get()._getExtraPath()}'
                         if self.fineTune else args + '--mode train',
                         numberOfMpi=1)
         self.runJob(program, args + f'--mode predict --reload {self._getExtraPath()}', numberOfMpi=1)

@@ -600,7 +600,7 @@ class JaxProtTrainZernike3Deep(ProtAnalysis3D, ProtFlexBase):
         md_file = self._getFileName("predictedFn")
         out_path = self._getExtraPath()
         Xdim = inputParticles.getXDim()
-        self.newXdim = self.boxSize.get()
+        self.newXdim = self.boxSize.get() if self.doDownsample.get() else Xdim
 
         metadata = XmippMetaData(md_file)
         correctionFactor = Xdim / self.newXdim
