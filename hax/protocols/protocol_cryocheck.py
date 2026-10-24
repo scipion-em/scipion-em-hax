@@ -208,36 +208,57 @@ class JaxProtCryoCheck(ProtAnalysis2D, ProtFlexBase):
         program = hax.Plugin.getProgram("cryocheck", gpu)
         if not os.path.isdir(self._getExtraPath("cryocheck_model")):  
             self.runJob(program,
-                        args + f'--mode train --reload {self._getExtraPath("cryocheck_model")}'
+                        args + f'--mode train --reload {self._getExtraPath("cryoCheck")}'
                         if self.fineTune else args + '--mode train',
                         numberOfMpi=1)
-        self.runJob(program, args + f'--mode predict --reload {self._getExtraPath("cryocheck_model")}', numberOfMpi=1)
+        self.runJob(program, args + f'--mode predict --reload {self._getExtraPath("cryoCheck")}', numberOfMpi=1)
 
 
     def createOutputStep(self):
         inputSet = self.inputParticles.get()
-        partSet = self._createSetOfParticles()
-        out_md = os.path.join(self._getExtraPath(), "md_final_predictions.xmd") #chiedi se giusto
+        out_dir = self._getExtraPath()
+        
+        # File generato dalla fase di predict
+        out_md_path = os.path.join(out_dir, "final_predictions.xmd")
+        md = XmippMetaData(out_md_path)
 
-        md = XmippMetaData(out_md)
+        # Inizializza i due set di output per Scipion
+        partSetAligned = self._createSetOfParticles('outputAlignedParticles')
+        partSetAligned.copyInfo(inputSet)
+        partSetAligned.setHasCTF(inputSet.hasCTF())
+        partSetAligned.setAlignmentProj()
 
-        partSet.copyInfo(inputSet)
-        partSet.setHasCTF(inputSet.hasCTF())
-        partSet.setAlignmentProj()
+        partSetMisaligned = self._createSetOfParticles('outputMisalignedParticles')
+        partSetMisaligned.copyInfo(inputSet)
+        partSetMisaligned.setHasCTF(inputSet.hasCTF())
+        partSetMisaligned.setAlignmentProj()
 
+    
         idx = 0
         for particle in inputSet.iterItems():
             outParticle = Particle()
             outParticle.copyInfo(particle)
             
-            outParticle.misalignment_score = Float(md[idx, "misalignment_score"])    
+            
+            score = float(md[idx, "misalignment_score"])
+            score_heavy = int(md[idx, "misalignment_score_heavy"])
+            
+            outParticle.misalignment_score = Float(score)
 
-            partSet.append(outParticle)
+           
+            if score_heavy == 1:
+                partSetAligned.append(outParticle)
+            else:
+                partSetMisaligned.append(outParticle)
 
             idx += 1
 
-        self._defineOutputs(outputParticles=partSet)
-        self._defineTransformRelation(inputSet, partSet)
+        
+        self._defineOutputs(outputAlignedParticles=partSetAligned,
+                            outputMisalignedParticles=partSetMisaligned)
+                            
+        self._defineTransformRelation(inputSet, partSetAligned)
+        self._defineTransformRelation(inputSet, partSetMisaligned)
 
 
     # --------------------------- INFO functions -----------------------------
