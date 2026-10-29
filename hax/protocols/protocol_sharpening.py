@@ -104,7 +104,7 @@ class JaxProtGaussianSharpening(ProtAnalysis3D, ProtFlexBase):
                             'therefore, losing all possibles sharpening in the process. If not applied, it will start by default value 1.0.')
 
         form.addParam('sparsWeight', params.FloatParam,
-                       label='Noise reductor', allowsNull=True,
+                       expertLevel=params.LEVEL_ADVANCED, label='Noise reductor', allowsNull=True,
                        help='This parameter can hold noise accountable while training. The higher the value, the more pressure it will apply on '
                             'the general noise of the structure, with the risk of losing true protein signal. If not applied, it will start '
                             'by default value 1.0.')
@@ -126,6 +126,13 @@ class JaxProtGaussianSharpening(ProtAnalysis3D, ProtFlexBase):
                             'the more force it will apply on structural outliers and it will prevent the network from oversmooth the structure, '
                             'with the risk of overfitting and creating unreal protein signal. Default value is a good starting point while '
                             'staying within an acceptable range [0.2, 0.8].')
+
+        form.addParam('peakRatio', params.FloatParam, default=1.0,
+                      label='Spike-values remover',
+                      help='This parameter can hold density peaks accountable when merging and splitting gaussians. The higher the value, '
+                           'the higher the threshold the gaussians will be facing, which will prevent the network from overfitting the structure '
+                           'and creating unreal protein signal. Default value references the maximum density available in the input volume, '
+                           'while increasing it will provide for different and more constrained results.')
 
         form.addParam('maxIterations', params.IntParam, default=20000,
                        label='Maximum number of iterations in fitting',
@@ -179,7 +186,6 @@ class JaxProtGaussianSharpening(ProtAnalysis3D, ProtFlexBase):
         ih.convert(self._getXmippFileName(inputMask), fnVolMask)
 
     def trainingPredictStep(self):
-        imgs_file = self._getExtra('input_particles')
         vol_file = self._getFileName('fnVol')
         half_map_1 = self._getFileName('fnVolHalf1')
         half_map_2 = self._getFileName('fnVolHalf2')
@@ -188,13 +194,14 @@ class JaxProtGaussianSharpening(ProtAnalysis3D, ProtFlexBase):
         if not os.path.isdir(out_path):
             os.mkdir(out_path)
         l1Weight = self.l1Weight.get()
+        peakRatio = self.peakRatio.get()
         maxIterations = self.maxIterations.get()
         maxGaussians = self.maxGaussians.get()
         sr = self.inputVolume.get().getSamplingRate()
-        args = ("--particles %s --vol %s --half_map_1 %s --half_map_2 %s --mask %s --sr %f --n_jobs %d "
-                "--l1_weight %f --max_iterations %d --max_gaussians %d --output_path %s ") \
-               % (imgs_file, vol_file, half_map_1, half_map_2, mask_file, sr, self.numberOfThreads.get(),
-                  l1Weight, maxIterations, maxGaussians, out_path)
+        args = ("--vol %s --half_map_1 %s --half_map_2 %s --mask %s --sr %f --n_jobs %d "
+                "--l1_weight %f --peak_ratio %f --max_iterations %d --max_gaussians %d --output_path %s ") \
+               % (vol_file, half_map_1, half_map_2, mask_file, sr, self.numberOfThreads.get(),
+                  l1Weight, peakRatio, maxIterations, maxGaussians, out_path)
 
         if self.gradWeight.get() is not None:
             args += '--ratio_grad %f ' % self.gradWeight.get()
