@@ -44,8 +44,7 @@ from pyworkflow.gui.dialog import showError
 from pwem.viewers import DataViewer
 
 from hax.protocols import (JaxProtFlexibleAlignmentHetSiren, JaxProtTrainFlexConsensus, JaxProtAngularAlignmentReconSiren,
-                           JaxProtImageAdjustment, JaxProtVolumeAdjustment, JaxProtTrainZernike3Deep,
-                           JaxProtReconstructMoDART)
+                           JaxProtTrainZernike3Deep, JaxProtReconstructMoDART)
 
 import hax
 
@@ -180,8 +179,6 @@ class JaxTensorboardViewer(DataViewer):
     _targets = [JaxProtFlexibleAlignmentHetSiren,
                 JaxProtTrainFlexConsensus,
                 JaxProtAngularAlignmentReconSiren,
-                JaxProtImageAdjustment,
-                JaxProtVolumeAdjustment,
                 JaxProtTrainZernike3Deep,
                 JaxProtReconstructMoDART]
     _environments = [DESKTOP_TKINTER, WEB_DJANGO]

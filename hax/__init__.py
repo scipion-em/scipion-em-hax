@@ -38,7 +38,7 @@ from hax.utils import get_max_cuda_version
 from .constants import DEFAULT_ACTIVATION_CMD, DEFAULT_ENV_NAME, HAX_ENV_ACTIVATION
 
 
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 _logo = "logo.png"
 _references = []
 
