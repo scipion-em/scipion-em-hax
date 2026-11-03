@@ -25,6 +25,8 @@
 # **************************************************************************
 
 
+import os
+import json
 import numpy as np
 from xmipp_metadata.image_handler import ImageHandler
 
@@ -106,6 +108,47 @@ class JaxProtReconstructMoDART(ProtReconstruct3D):
                            "estimated by the network is also applied. Note that this "
                            "option requires that the particles come from HetSIREN (mass transport) or Zernike3Deep. "
                            "Otherwise, the parameter should be set to 'No'")
+
+        group.addParam('fieldSmoothing', params.FloatParam, default=0.0,
+                      condition="doMotionCorrection",
+                      expertLevel=params.LEVEL_ADVANCED,
+                      label="Motion field smoothing (A)",
+                      help="Width of a local-linear Gaussian smoothing of each particle's motion field: it removes non-rigid "
+                           "jitter while keeping rigid (and affine) motions exact. 0 disables it.")
+
+        group.addParam('removeMeanField', params.BooleanParam, default=False,
+                      condition="doMotionCorrection",
+                      expertLevel=params.LEVEL_ADVANCED,
+                      label="Remove mean motion field?",
+                      help="Subtract the particle-average motion field of the network, so the map is reconstructed in the "
+                           "frame of the network's reference. It removes a static deformation the network may learn (e.g. "
+                           "to sharpen a blurred reference by moving its points), which otherwise distorts the map.")
+
+        group = form.addGroup("Iterative refinement")
+        group.addParam('refineIterations', params.IntParam, default=0,
+                      condition="doMotionCorrection",
+                      label="Refinement iterations",
+                      help="Each iteration reconstructs a map and fine tunes the motion network on it, with the parameters "
+                           "of its training (the map as reference, reloading the network and refitting its reference). "
+                           "The final map comes from the refined network. Intermediate maps and networks are written to "
+                           "extra/iteration_N. 0 disables it.")
+
+        group.addParam('refineEpochs', params.IntParam, allowsNull=True,
+                      condition="doMotionCorrection and refineIterations > 0",
+                      label="Fine tune epochs",
+                      help="Epochs of each refinement fine tune. If not provided, the ones of the network's training.")
+
+        group.addParam('refineLearningRate', params.FloatParam, allowsNull=True,
+                      condition="doMotionCorrection and refineIterations > 0",
+                      expertLevel=params.LEVEL_ADVANCED,
+                      label="Fine tune learning rate",
+                      help="Learning rate of the refinement fine tunes. If not provided, the one of the network's training.")
+
+        group.addParam('refineBatchSize', params.IntParam, allowsNull=True,
+                      condition="doMotionCorrection and refineIterations > 0",
+                      expertLevel=params.LEVEL_ADVANCED,
+                      label="Fine tune batch size",
+                      help="Batch size of the refinement fine tunes. If not provided, the one of the network's training.")
 
         group = form.addGroup("Symmetry")
         group.addParam('symmetryGroup', params.StringParam, default="c1",
@@ -219,6 +262,22 @@ class JaxProtReconstructMoDART(ProtReconstruct3D):
 
         if self.doMotionCorrection.get():
             args += f"--motion_correction {self.inputParticles.get().getFlexInfo().modelPath.get()} "
+            args += f"--field_smoothing {self.fieldSmoothing.get()} "
+
+            if self.removeMeanField:
+                args += "--remove_mean_field "
+
+            if self.refineIterations.get() > 0:
+                args += f"--refine_iterations {self.refineIterations.get()} "
+
+                if self.refineEpochs.get() is not None:
+                    args += f"--refine_epochs {self.refineEpochs.get()} "
+
+                if self.refineLearningRate.get() is not None:
+                    args += f"--refine_learning_rate {self.refineLearningRate.get()} "
+
+                if self.refineBatchSize.get() is not None:
+                    args += f"--refine_batch_size {self.refineBatchSize.get()} "
 
         if self.lazyLoad:
             args += "--load_images_to_ram "
@@ -271,5 +330,21 @@ class JaxProtReconstructMoDART(ProtReconstruct3D):
             if correction_method not in [const.HETSIREN, const.ZERNIKE3D]:
                 errors.append("Motion correction method not recognized. If you want to use motion correction, the particles "
                               "provided must come from HetSIREN (mass transport) or Zernike3Deep protocols.")
+
+            if self.refineIterations.get() > 0:
+                # The fine tunes take the map as --vol of the network's training, so the box sizes must match
+                config_file = os.path.join(os.path.dirname(self.inputParticles.get().getFlexInfo().modelPath.get()), "run_config.json")
+                if not os.path.isfile(config_file):
+                    errors.append(f"Training parameters of the motion network not found ({config_file}). They are needed "
+                                  f"by the iterative refinement.")
+                else:
+                    with open(config_file) as fid:
+                        config = json.load(fid)
+                    if not np.isclose(config["sr"], self.inputParticles.get().getSamplingRate()):
+                        errors.append("Iterative refinement needs a motion network trained on the particles at their original "
+                                      "size (without downsampling).")
+                    if correction_method == const.HETSIREN and not (config.get("implicit_network") or config.get("point_transformer")):
+                        errors.append("Iterative refinement needs a HetSIREN network trained with mass transport and an "
+                                      "implicit or point transformer decoder.")
 
         return errors
