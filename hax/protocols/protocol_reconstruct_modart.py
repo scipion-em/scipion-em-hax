@@ -261,7 +261,9 @@ class JaxProtReconstructMoDART(ProtReconstruct3D):
             args += "--reconstruct_halves "
 
         if self.doMotionCorrection.get():
-            args += f"--motion_correction {self.inputParticles.get().getFlexInfo().modelPath.get()} "
+            modelPath = self.inputParticles.get().getFlexInfo().modelPath.get()
+            # The particle poses already include the network's pose refinement
+            args += f"--motion_correction {modelPath} --poses_refined_by {modelPath} "
             args += f"--field_smoothing {self.fieldSmoothing.get()} "
 
             if self.removeMeanField:
