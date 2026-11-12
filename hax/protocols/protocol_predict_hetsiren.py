@@ -203,6 +203,10 @@ class JaxProtPredictHetSiren(ProtAnalysis3D, ProtFlexBase):
                 args += '--ctf_type wiener '
             elif self._getHetSirenProtocol().ctfType.get() == 3:
                 args += '--ctf_type precorrect '
+            elif self._getHetSirenProtocol().ctfType.get() == 4:
+                args += '--ctf_type premultiplied '
+        else:
+            args += '--ctf_type None '
 
         if self.lazyLoad.get():
             args += '--load_images_to_ram '
@@ -233,7 +237,7 @@ class JaxProtPredictHetSiren(ProtAnalysis3D, ProtFlexBase):
         md_file = self._getFileName('predictedFn')
         out_path = self._getHetSirenProtocol()._getExtraPath()
         Xdim = self.inputParticles.get().getXDim()
-        self.newXdim = self._getHetSirenProtocol().boxSize.get()
+        self.newXdim = self._getHetSirenProtocol().boxSize.get() if self._getHetSirenProtocol().doDownsample.get() else Xdim
         correctionFactor = Xdim / self.newXdim
 
         metadata = XmippMetaData(md_file)
@@ -280,10 +284,12 @@ class JaxProtPredictHetSiren(ProtAnalysis3D, ProtFlexBase):
         if self._getHetSirenProtocol().ctfType.get() != 0:
             if self._getHetSirenProtocol().ctfType.get() == 1:
                 partSet.getFlexInfo().ctfType = String("apply")
-            elif self._getHetSirenProtocol().ctfType.get() == 1:
-                partSet.getFlexInfo().ctfType = String("wiener")
             elif self._getHetSirenProtocol().ctfType.get() == 2:
+                partSet.getFlexInfo().ctfType = String("wiener")
+            elif self._getHetSirenProtocol().ctfType.get() == 3:
                 partSet.getFlexInfo().ctfType = String("precorrect")
+            elif self._getHetSirenProtocol().ctfType.get() == 4:
+                partSet.getFlexInfo().ctfType = String("premultiplied")
                 
         if self.useGpu.get():
             gpu = str(self.getGpuList()[0])
