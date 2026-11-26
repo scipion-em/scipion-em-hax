@@ -86,53 +86,12 @@ class JaxProtGaussianSharpening(ProtAnalysis3D, ProtFlexBase):
                            'loading images > 256px on a HDD disk.')
 
         form.addSection(label='Gaussian Fitting')
-        form.addParam('gradWeight', params.FloatParam,
-                       expertLevel=params.LEVEL_ADVANCED, label='Envelope smoothing', allowsNull=True,
-                       help='This parameter can hold transitions between map and solvent accountable while training. The higher the value, the smoother '
-                            'the structure will be. If not applied, it will start by default value 1.0.')
-
-        form.addParam('lapWeight', params.FloatParam,
-                       expertLevel=params.LEVEL_ADVANCED, label='High-Resolution detailing', allowsNull=True,
-                       help='This parameter can hold high-resolution details accountable while training. The higher the value, the greater '
-                            'the force it will apply on each voxel, enforcing an amplification of abrupt density changes but with the risk of '
-                            'creating over-sharpened and unnatural structures within the volume. If not applied, it will start by default value 1.0.')
-
-        form.addParam('tvWeight', params.FloatParam,
-                       expertLevel=params.LEVEL_ADVANCED, label='Structural continuity', allowsNull=True,
-                       help='This parameter can hold map continuity accountable while training. The higher the value, the more pressure it will apply on '
-                            'the general densities of the structure, with the risk of over-performing an inverse process for high-resolution detailing and, '
-                            'therefore, losing all possibles sharpening in the process. If not applied, it will start by default value 1.0.')
-
-        form.addParam('sparsWeight', params.FloatParam,
-                       expertLevel=params.LEVEL_ADVANCED, label='Noise reductor', allowsNull=True,
-                       help='This parameter can hold noise accountable while training. The higher the value, the more pressure it will apply on '
-                            'the general noise of the structure, with the risk of losing true protein signal. If not applied, it will start '
-                            'by default value 1.0.')
-
-        form.addParam('boundWeight', params.FloatParam,
-                       expertLevel=params.LEVEL_ADVANCED, label='Box boundary enforcement', allowsNull=True,
-                       help='This parameter can hold voxel boundary accountable while training. It forces the model to strictly contain all density '
-                            'within a specific boundary (normally, 90% of the whole box). If not applied, it will start by default value 1.0.')
-
-        form.addParam('sigmaWeight', params.FloatParam,
-                       expertLevel=params.LEVEL_ADVANCED, label='Nyquist limit enforcement', allowsNull=True,
-                       help='This parameter can hold gaussians size accountable while training. The higher the value, the more pressure it will apply on '
-                            'the global size of each gaussian, pushing them towards the specified limits (normally, between 20% and 200% of a pixel). '
-                            'If not applied, it will start by default value 1.0.')
-
         form.addParam('l1Weight', params.FloatParam, default=0.2,
                        label='Outlier and sharpening weighter',
                        help='This parameter can hold outliers (noise) and smooth surfaces accountable while training. The higher the value, '
                             'the more force it will apply on structural outliers and it will prevent the network from oversmooth the structure, '
                             'with the risk of overfitting and creating unreal protein signal. Default value is a good starting point while '
                             'staying within an acceptable range [0.2, 0.8].')
-
-        form.addParam('peakRatio', params.FloatParam, default=1.0,
-                      label='Spike-values remover',
-                      help='This parameter can hold density peaks accountable when merging and splitting gaussians. The higher the value, '
-                           'the higher the threshold the gaussians will be facing, which will prevent the network from overfitting the structure '
-                           'and creating unreal protein signal. Default value references the maximum density available in the input volume, '
-                           'while increasing it will provide for different and more constrained results.')
 
         form.addParam('maxIterations', params.IntParam, default=20000,
                        label='Maximum number of iterations in fitting',
@@ -194,32 +153,13 @@ class JaxProtGaussianSharpening(ProtAnalysis3D, ProtFlexBase):
         if not os.path.isdir(out_path):
             os.mkdir(out_path)
         l1Weight = self.l1Weight.get()
-        peakRatio = self.peakRatio.get()
         maxIterations = self.maxIterations.get()
         maxGaussians = self.maxGaussians.get()
         sr = self.inputVolume.get().getSamplingRate()
         args = ("--vol %s --half_map_1 %s --half_map_2 %s --mask %s --sr %f --n_jobs %d "
-                "--l1_weight %f --peak_ratio %f --max_iterations %d --max_gaussians %d --output_path %s ") \
+                "--l1_weight %f --max_iterations %d --max_gaussians %d --output_path %s ") \
                % (vol_file, half_map_1, half_map_2, mask_file, sr, self.numberOfThreads.get(),
-                  l1Weight, peakRatio, maxIterations, maxGaussians, out_path)
-
-        if self.gradWeight.get() is not None:
-            args += '--ratio_grad %f ' % self.gradWeight.get()
-
-        if self.lapWeight.get() is not None:
-            args += '--ratio_lap %f ' % self.lapWeight.get()
-
-        if self.tvWeight.get() is not None:
-            args += '--ratio_tv %f ' % self.tvWeight.get()
-
-        if self.sparsWeight.get() is not None:
-            args += '--ratio_spars %f ' % self.sparsWeight.get()
-
-        if self.boundWeight.get() is not None:
-            args += '--ratio_bound %f ' % self.boundWeight.get()
-
-        if self.sigmaWeight.get() is not None:
-            args += '--ratio_sigma %f ' % self.sigmaWeight.get()
+                  l1Weight, maxIterations, maxGaussians, out_path)
 
         if self.lazyLoad:
             args += '--load_images_to_ram '
